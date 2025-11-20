@@ -21,7 +21,7 @@ if st.button("Cek Fakta"):
         results = []
         with DDGS() as ddgs:
             # Search for the claim directly
-            search_query = f"{user_text} fakta hoax indonesia"
+            search_query = f"berita validasi {user_text} indonesia"
             # Get top 5 results
             results = list(ddgs.text(search_query, region='id-id', max_results=5))
 
