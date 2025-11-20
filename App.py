@@ -1,80 +1,103 @@
 import streamlit as st
 import google.generativeai as genai
-from duckduckgo_search import DDGS
+import requests
+import json
 
-# 1. SETUP
-st.set_page_config(page_title="Cek Fakta AI", page_icon="🛡️")
+# 1. SETUP PAGE
+st.set_page_config(page_title="Cek Fakta AI (Pro)", page_icon="🛡️")
 st.title("🛡️ Cek Fakta Berita Indonesia")
+st.markdown("Tempelkan judul berita atau pesan WhatsApp yang mencurigakan di bawah ini.")
 
-# Get API Key from Streamlit Secrets (we will set this later)
-api_key = st.secrets["GEMINI_API_KEY"] 
-genai.configure(api_key=api_key)
+# 2. API SETUP
+# We need TWO keys now: one for the Brain (Gemini), one for the Eyes (Serper)
+try:
+    gemini_key = st.secrets["GEMINI_API_KEY"]
+    serper_key = st.secrets["SERPER_API_KEY"] # We will add this to secrets soon
+    genai.configure(api_key=gemini_key)
+except FileNotFoundError:
+    st.error("API Key tidak ditemukan. Harap set GEMINI_API_KEY dan SERPER_API_KEY di Streamlit Secrets.")
+    st.stop()
+except KeyError:
+    st.error("Salah satu API Key hilang. Pastikan GEMINI_API_KEY dan SERPER_API_KEY ada di Secrets.")
+    st.stop()
 
-# 2. INPUT
-user_text = st.text_area("Masukkan judul atau isi berita yang mencurigakan:", height=100)
+# Function to Search Google via Serper
+def google_search(query):
+    url = "https://google.serper.dev/search"
+    payload = json.dumps({
+        "q": query,
+        "gl": "id", # Target Indonesia
+        "hl": "id", # Language Indonesia
+        "num": 5    # Number of results
+    })
+    headers = {
+        'X-API-KEY': serper_key,
+        'Content-Type': 'application/json'
+    }
+    try:
+        response = requests.request("POST", url, headers=headers, data=payload)
+        return response.json().get("organic", [])
+    except:
+        return []
 
-if st.button("Cek Fakta"):
-    with st.spinner('Sedang mencari referensi di internet...'):
-        
-        # 3. SEARCH (The "Eyes")
-        # Uses DuckDuckGo to search for the news text + "hoax" or "fakta"
-        results = []
-        with DDGS() as ddgs:
-            # Search for the claim directly
-            search_query = f"berita validasi {user_text} indonesia"
-            # Get top 5 results
-            results = list(ddgs.text(search_query, region='id-id', max_results=5))
+# 3. USER INPUT
+user_text = st.text_area("Masukkan teks di sini:", height=150, placeholder="Contoh: Prabowo bertemu PM Australia...")
 
-        if not results:
-            st.error("Tidak ditemukan berita terkait. AI tidak dapat memverifikasi.")
-        else:
-            # 4. PREPARE CONTEXT
-            evidence_text = ""
-            for doc in results:
-                evidence_text += f"- {doc['title']}: {doc['body']} (Link: {doc['href']})\n"
+if st.button("🔍 Cek Fakta Sekarang"):
+    if not user_text:
+        st.warning("Harap masukkan teks berita terlebih dahulu.")
+    else:
+        with st.spinner('Sedang melakukan investigasi mendalam...'):
+            
+            # 4. SEARCH (The "Eyes" - Upgraded to Google API)
+            # We search for the text + 'berita' to ensure we get news
+            search_query = f"{user_text} berita validasi"
+            results = google_search(search_query)
 
-            # 5. REASONING (The "Brain")
-            model = genai.GenerativeModel('gemini-2.0-flash')
-            
-            prompt = f"""
-            Peran: Kamu adalah "CekFaktaBot", asisten AI investigasi berita yang objektif, skeptis, namun santai. Target audiensmu adalah masyarakat umum Indonesia.
-            
-            TUGAS UTAMA:
-            Analisis KLAIM USER berdasarkan BUKTI PENCARIAN yang disediakan di bawah.
-            
-            KLAIM USER:
-            "{user_text}"
-            
-            BUKTI PENCARIAN (Dari Internet):
-            {evidence_text}
-            
-            ATURAN ANALISIS:
-            1. JANGAN gunakan pengetahuan bawaanmu. HANYA gunakan fakta yang ada di "BUKTI PENCARIAN".
-            2. Jika bukti menyebutkan "TurnBackHoax", "Kominfo", atau "Cek Fakta" membantah klaim ini -> Label: HOAKS.
-            3. Jika bukti berasal dari situs satir/humor (seperti PosRonda, The Onion) -> Label: SATIRE.
-            4. Jika bukti mengonfirmasi kejadian tapi detailnya salah -> Label: MISINFORMASI.
-            5. Jika tidak ada bukti yang relevan sama sekali -> Label: TIDAK TERBUKTI (Minta user cek kata kunci).
-            
-            FORMAT JAWABAN (Gunakan format Markdown):
-            
-            ## ⚖️ Vonis: [HOAKS / FAKTA / SATIRE / TIDAK TERBUKTI]
-            
-            **Penjelasan Singkat:**
-            [Tulis 2-3 kalimat santai bahasa Indonesia. Jelaskan kenapa ini hoaks/fakta. Contoh: "Tenang guys, ini cuma editan. Foto aslinya itu kejadian tahun 2019..."]
-            
-            **Bukti Temuan:**
-            * [Poin 1 dari berita A]
-            * [Poin 2 dari berita B]
-            
-            ⚠️ *Analisis ini dibuat otomatis berdasarkan pencarian internet. Selalu cek ulang sumber.*
-            """
+            if not results:
+                st.warning("Google tidak menemukan berita relevan. Coba kata kunci yang lebih spesifik.")
+            else:
+                # 5. PREPARE CONTEXT
+                evidence_text = ""
+                for doc in results:
+                    evidence_text += f"- {doc.get('title', 'No Title')}: {doc.get('snippet', 'No snippet')} (Source: {doc.get('link')})\n"
 
-            response = model.generate_content(prompt)
-            
-            # 6. OUTPUT
-            st.markdown("### Hasil Analisis AI:")
-            st.write(response.text)
-            
-            st.markdown("### Sumber Referensi:")
-            for doc in results:
-                st.markdown(f"- [{doc['title']}]({doc['href']})")
+                # 6. REASONING (The "Brain")
+                prompt = f"""
+                Peran: Kamu adalah "CekFaktaBot", investigator berita senior.
+                
+                TUGAS:
+                Verifikasi KLAIM USER berdasarkan BUKTI PENCARIAN Google di bawah ini.
+                
+                KLAIM USER:
+                "{user_text}"
+                
+                BUKTI PENCARIAN (Google Search):
+                {evidence_text}
+                
+                ATURAN:
+                1. Jika bukti berita mainstream (Kompas, CNN, Detik, Antara) mengonfirmasi peristiwa -> FAKTA.
+                2. Jika tidak ada berita sama sekali tentang event ini -> TIDAK TERBUKTI.
+                3. Jika sumber terpercaya membantah -> HOAKS.
+                
+                FORMAT OUTPUT (Markdown):
+                ## ⚖️ Vonis: [FAKTA / HOAKS / SATIRE / TIDAK TERBUKTI]
+                
+                **Analisis:**
+                [Jelaskan dalam 2 kalimat santai]
+                
+                **Sumber Valid:**
+                * [Judul Berita](Link)
+                """
+
+                try:
+                    model = genai.GenerativeModel('gemini-2.0-flash')
+                    response = model.generate_content(prompt)
+                    
+                    # 7. OUTPUT
+                    st.markdown("---")
+                    st.markdown("### 🤖 Hasil Analisis AI:")
+                    st.write(response.text)
+                        
+                except Exception as e:
+                    st.error(f"Terjadi kesalahan pada AI: {e}")
