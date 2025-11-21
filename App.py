@@ -110,7 +110,7 @@ if st.button("🔍 Cek Fakta Sekarang", type="primary"):
             else:
                 
                 # B. FILTER RESULTS USING YOUR MODEL
-                st.subheader("Analisis Kualitas Sumber (AI Filter)")
+                st.subheader("Analisis Kualitas Sumber (AI Filter)(WIP)")
                 
                 scored_evidence = ""
                 
