@@ -29,7 +29,7 @@ def load_model():
     model_path = "hoax_detector_final.pkl"
     
     if not os.path.exists(model_path):
-        st.error(f"⚠️ File model '{model_path}' tidak ditemukan. Harap upload file .pkl ke folder yang sama dengan app.py.")
+        st.error(f"File model '{model_path}' tidak ditemukan. Harap upload file .pkl ke folder yang sama dengan app.py.")
         return None
         
     try:
