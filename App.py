@@ -2,6 +2,18 @@ import streamlit as st
 import google.generativeai as genai
 import requests
 import json
+from datetime import datetime
+import locale
+
+# Optional: Try to set locale to Indonesia for correct day names, 
+# otherwise default English is fine as Gemini understands both.
+try:
+    locale.setlocale(locale.LC_TIME, 'id_ID.UTF-8')
+except:
+    pass # Fallback if locale not installed on server
+
+# Get current date in a clear format (e.g., "Jumat, 21 November 2025")
+today_date = datetime.now().strftime("%A, %d %B %Y")
 
 # 1. SETUP PAGE
 st.set_page_config(page_title="Cek Fakta AI (Pro)", page_icon="🛡️")
@@ -68,6 +80,9 @@ if st.button("🔍 Cek Fakta Sekarang"):
                 
                 TUGAS:
                 Verifikasi KLAIM USER berdasarkan BUKTI PENCARIAN Google di bawah ini.
+
+                Tanggal Hari Ini: {today_date} 
+                (Gunakan tanggal ini sebagai acuan untuk kata "hari ini", "kemarin", "besok", atau "baru saja").
                 
                 KLAIM USER:
                 "{user_text}"
