@@ -5,7 +5,7 @@ import json
 
 # 1. SETUP PAGE
 st.set_page_config(page_title="Cek Fakta AI (Pro)", page_icon="🛡️")
-st.title("🛡️ Cek Fakta Berita Indonesia")
+st.title("🛡️ \"TPSC\" Cek Fakta Berita Indonesia")
 st.markdown("Tempelkan judul berita atau pesan WhatsApp yang mencurigakan di bawah ini.")
 
 # 2. API SETUP
