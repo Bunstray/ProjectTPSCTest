@@ -153,7 +153,7 @@ def handle_message(message):
         [Jelaskan kesimpulan dalam 2 kalimat]
         
         *🔗 Sumber:*
-        [List 2-3 link terbaik]
+        [List 2 hingga 3 link terbaik]
         
         _Powered by CekFaktaTPSC_
         """
