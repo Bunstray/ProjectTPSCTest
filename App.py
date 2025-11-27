@@ -143,7 +143,7 @@ def handle_message(message):
            - 0-49%: 🟥🟥🟥⬜⬜ (Danger)
         
         OUTPUT FORMAT (Telegram Markdown):
-        *LAPORAN TPSC HYBRID*
+        *HASIL CEK FAKTA*
         ------------------------------
         📊 *Status:* [FAKTA / HOAKS / TIDAK JELAS]
         
@@ -153,9 +153,9 @@ def handle_message(message):
         [Jelaskan kesimpulan dalam 2 kalimat]
         
         *🔗 Sumber:*
-        [List 2 link terbaik]
+        [List 2-3 link terbaik]
         
-        _Powered by TPSC_
+        _Powered by CekFaktaTPSC_
         """
         
         model_gemini = genai.GenerativeModel('gemini-2.0-flash')
