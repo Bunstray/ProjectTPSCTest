@@ -1,178 +1,175 @@
 import streamlit as st
+import telebot # New library for Bot functionality
 import google.generativeai as genai
 import requests
 import json
-import pickle  # Essential for loading the brain
-import re      # Essential for cleaning text
+import pickle
+import re
 import os
-from datetime import datetime
-import locale
+import time
 
-# Optional: Locale setup
+# 1. SETUP PAGE (Minimal UI)
+st.set_page_config(page_title="TPSC Bot Server", page_icon="🤖")
+st.title("🤖 TPSC Telegram Bot Server")
+
+# 2. LOAD SECRETS
 try:
-    locale.setlocale(locale.LC_TIME, 'id_ID.UTF-8')
-except:
-    pass
-today_date = datetime.now().strftime("%A, %d %B %Y")
+    gemini_key = st.secrets["GEMINI_API_KEY"]
+    serper_key = st.secrets["SERPER_API_KEY"]
+    bot_token = st.secrets["TELEGRAM_BOT_TOKEN"]
+    
+    genai.configure(api_key=gemini_key)
+    bot = telebot.TeleBot(bot_token) # Initialize the Bot
+except Exception as e:
+    st.error(f"Secrets Error: {e}")
+    st.stop()
 
-# 1. SETUP PAGE
-st.set_page_config(page_title="Cek Fakta AI (Pro)", page_icon="🛡️", layout="wide")
-st.title("🛡️ \"TPSC\" Cek Fakta Berita Indonesia")
-st.markdown("Sistem ini menggunakan **Google Search** dengan **AI Detektor Hoaks** (Naive Bayes) untuk memfilter sumber berita.")
-
-
-# 2. LOAD THE TRAINED MODEL
-
+# 3. LOAD LOCAL MODEL (The Brain)
 @st.cache_resource
 def load_model():
-    # Make sure 'hoax_detector_final.pkl' is in the same folder!
     model_path = "hoax_detector_final.pkl"
     
+    # Debugging: Check if file exists
     if not os.path.exists(model_path):
-        st.error(f"File model '{model_path}' tidak ditemukan. Harap upload file .pkl ke folder yang sama dengan app.py.")
         return None
         
     try:
         with open(model_path, "rb") as f:
-            model = pickle.load(f)
-        return model
+            loaded_model = pickle.load(f)
+            return loaded_model
     except Exception as e:
-        st.error(f"Gagal memuat model: {e}")
         return None
 
 model = load_model()
 
+# UI STATUS INDICATOR
+if model:
+    st.success("✅ Brain Loaded: 'hoax_detector_final.pkl' is active.")
+else:
+    st.warning("⚠️ Brain Missing: 'hoax_detector_final.pkl' not found. Running in Search-Only mode.")
 
-# 3. TEXT CLEANING (Must match training logic exactly)
+st.info("Status: Click Start below to activate the listening loop.")
 
+# 4. UTILITY FUNCTIONS
 def clean_text_for_model(text):
     text = str(text)
-    # Remove cheat tags
     text = re.sub(r'\[.*?\]', '', text)
     text = re.sub(r'\(.*?\)', '', text)
-
-    # Capture Style Tokens
     caps_count = sum(1 for c in text if c.isupper())
     length = len([c for c in text if c.isalpha()])
     style_tokens = ""
-    
-    if length > 0 and (caps_count / length) > 0.3: 
-        style_tokens += " token_shouting "
-    if "!!" in text or "??" in text:
-        style_tokens += " token_excessive_bang "
-    
-    clickbait_triggers = ['viralkan', 'sebarkan', 'awas', 'hati-hati', 'terbongkar', 'mengejutkan']
-    if any(word in text.lower() for word in clickbait_triggers):
-        style_tokens += " token_clickbait "
-
-    # Normalize
+    if length > 0 and (caps_count / length) > 0.3: style_tokens += " token_shouting "
+    if "!!" in text or "??" in text: style_tokens += " token_excessive_bang "
+    clickbait_triggers = ['viralkan', 'sebarkan', 'awas', 'hati-hati', 'terbongkar']
+    if any(word in text.lower() for word in clickbait_triggers): style_tokens += " token_clickbait "
     text = text.lower()
     text = re.sub(r'[^a-z0-9\s]', '', text) 
     return text + style_tokens
 
-# 4. API SETUP
-try:
-    gemini_key = st.secrets["GEMINI_API_KEY"]
-    serper_key = st.secrets["SERPER_API_KEY"]
-    genai.configure(api_key=gemini_key)
-except FileNotFoundError:
-    st.error("Secrets file not found.")
-    st.stop()
-
 def google_search(query):
     url = "https://google.serper.dev/search"
-    payload = json.dumps({
-        "q": query,
-        "gl": "id", "hl": "id", "num": 6 
-    })
+    payload = json.dumps({"q": query, "gl": "id", "hl": "id", "num": 5})
     headers = {'X-API-KEY': serper_key, 'Content-Type': 'application/json'}
     try:
         response = requests.post(url, headers=headers, data=payload)
         return response.json().get("organic", [])
-    except:
-        return []
+    except: return []
 
-# 5. USER INPUT
-user_text = st.text_area("Masukkan teks di sini:", height=100, placeholder="Contoh: Prabowo bertemu PM Australia...")
+# 5. TELEGRAM BOT LOGIC
+@bot.message_handler(func=lambda message: True)
+def handle_message(message):
+    user_text = message.text
+    chat_id = message.chat.id
+    
+    # Send "Typing..." status
+    bot.send_chat_action(chat_id, 'typing')
+    temp_msg = bot.reply_to(message, "🕵️ *TPSC sedang menginvestigasi...*", parse_mode="Markdown")
+    
+    try:
+        # A. SEARCH
+        results = google_search(f"{user_text} berita validasi")
+        
+        if not results:
+            bot.edit_message_text("❌ Tidak ditemukan berita relevan di Google.", chat_id, temp_msg.message_id)
+            return
 
-if st.button("🔍 Cek Fakta Sekarang", type="primary"):
-    if not user_text:
-        st.warning("Harap masukkan teks berita terlebih dahulu.")
-    else:
-        with st.spinner('AI sedang menganalisis sumber informasi...'):
+        # B. LOCAL AI FILTERING
+        evidence_for_gemini = ""
+        for doc in results:
+            full_text = f"{doc.get('title')} {doc.get('snippet')}"
+            link = doc.get('link')
             
-            # A. GOOGLE SEARCH
-            search_query = f"{user_text} berita"
-            results = google_search(search_query)
-
-            if not results:
-                st.warning("Google tidak menemukan berita relevan.")
-            else:
-                
-                # B. FILTER RESULTS USING YOUR MODEL
-                st.subheader("Analisis Kualitas Sumber (AI Filter)(WIP)")
-                
-                scored_evidence = ""
-                
-                for doc in results:
-                    title = doc.get('title', '')
-                    snippet = doc.get('snippet', '')
-                    full_text = f"{title} {snippet}"
-                    link = doc.get('link')
-
-                    # PREDICT
-                    hoax_score = 0.5 # Default neutral
-                    if model:
-                        clean_input = clean_text_for_model(full_text)
-                        try:
-                            probs = model.predict_proba([clean_input])[0]
-                            classes = model.classes_
-                            hoax_idx = list(classes).index("Hoax")
-                            hoax_score = probs[hoax_idx]
-                        except:
-                            pass
-
-                    # DISPLAY RESULTS
-                    # Filter sources based on the score
-                    if hoax_score > 0.7:
-                        st.markdown(f"⛔ **SUMBER MENCURIGAKAN (Skor Hoaks {hoax_score*100:.0f}%):** [{title}]({link})")
-                        scored_evidence += f"- [SUMBER DIABAIKAN/CLICKBAIT] {title}: {snippet}\n"
-                    elif hoax_score > 0.4:
-                        st.markdown(f"⚠️ **NETRAL (Skor Hoaks {hoax_score*100:.0f}%):** [{title}]({link})")
-                        scored_evidence += f"- [SUMBER NETRAL] {title}: {snippet}\n"
-                    else:
-                        st.markdown(f"✅ **TERPERCAYA (Skor Hoaks {hoax_score*100:.0f}%):** [{title}]({link})")
-                        scored_evidence += f"- [SUMBER TERPERCAYA] {title}: {snippet}\n"
-
-                # C. GEMINI GENERATION
-                prompt = f"""
-                Peran: Investigator Berita Senior.
-                
-                TUGAS:
-                Verifikasi KLAIM USER berdasarkan BUKTI PENCARIAN yang sudah dinilai oleh AI Detektor Hoaks.
-
-                KLAIM USER: "{user_text}"
-                
-                BUKTI BERITA (Dinilai oleh AI):
-                {scored_evidence}
-                
-                ATURAN:
-                1. Prioritaskan [SUMBER TERPERCAYA].
-                2. Jika banyak sumber clickbait/diabaikan, beri peringatan.
-                3. Jawab dengan tegas: FAKTA, HOAKS, atau TIDAK TERBUKTI.
-                
-                FORMAT OUTPUT:
-                ## Vonis: [FAKTA / HOAKS / TIDAK TERBUKTI]
-                **Analisis:** [Penjelasan]
-                """
-
+            # Predict
+            hoax_score = 0.5 # Default if model fails
+            tag = "⚪ [ANALYZING]"
+            
+            if model:
                 try:
-                    model_gemini = genai.GenerativeModel('gemini-2.0-flash')
-                    response = model_gemini.generate_content(prompt)
+                    clean_input = clean_text_for_model(full_text)
+                    # Assumes the pickle is a full pipeline (Vector + Model)
+                    probs = model.predict_proba([clean_input])[0]
+                    # Find which index is "Hoax"
+                    hoax_idx = 1 # Default assumption
+                    if hasattr(model, 'classes_'):
+                        classes = list(model.classes_)
+                        if "Hoax" in classes:
+                            hoax_idx = classes.index("Hoax")
                     
-                    st.markdown("---")
-                    st.markdown("###  Kesimpulan Akhir:")
-                    st.write(response.text)
-                        
+                    hoax_score = probs[hoax_idx]
                 except Exception as e:
-                    st.error(f"Terjadi kesalahan pada Gemini: {e}")
+                    print(f"Prediction Error: {e}")
+
+            # Tagging Logic
+            if hoax_score > 0.7: tag = "⛔ [SUSPECT]"
+            elif hoax_score > 0.4: tag = "⚠️ [NEUTRAL]"
+            else: tag = "✅ [TRUSTED]"
+            
+            evidence_for_gemini += f"{tag} {doc.get('title')} (Link: {link})\n"
+
+        # C. GEMINI REASONING (With Visual Rubric)
+        prompt = f"""
+        Peran: Kamu adalah TPSC-Bot.
+        TUGAS: Analisis KLAIM USER berdasarkan BUKTI AI Lokal.
+        
+        KLAIM: "{user_text}"
+        BUKTI:
+        {evidence_for_gemini}
+        
+        INSTRUKSI KHUSUS:
+        1. Hitung Confidence Score (0-100%).
+        2. Gunakan Visual Bar untuk Confidence Score:
+           - 80-100%: 🟩🟩🟩🟩🟩 (Trust)
+           - 50-79%: 🟨🟨🟨⬜⬜ (Caution)
+           - 0-49%: 🟥🟥🟥⬜⬜ (Danger)
+        
+        OUTPUT FORMAT (Telegram Markdown):
+        *LAPORAN TPSC HYBRID*
+        ------------------------------
+        📊 *Status:* [FAKTA / HOAKS / TIDAK JELAS]
+        
+        [VISUAL BAR] *Confidence:* [SCORE]%
+        
+        *📋 Analisis AI:*
+        [Jelaskan kesimpulan dalam 2 kalimat]
+        
+        *🔗 Sumber:*
+        [List 2 link terbaik]
+        
+        _Powered by TPSC_
+        """
+        
+        model_gemini = genai.GenerativeModel('gemini-2.0-flash')
+        response = model_gemini.generate_content(prompt)
+        final_msg = response.text
+
+        # D. SEND RESULT
+        bot.delete_message(chat_id, temp_msg.message_id) 
+        bot.send_message(chat_id, final_msg, parse_mode="Markdown")
+
+    except Exception as e:
+        bot.send_message(chat_id, f"⚠️ Error: {str(e)}")
+
+# 6. START BUTTON (To Run the Loop)
+if st.button("🚀 START BOT POLLING"):
+    st.success("Bot is running... Go to Telegram!")
+    bot.infinity_polling()
