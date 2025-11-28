@@ -17,6 +17,10 @@ from datetime import datetime, timedelta
 st.set_page_config(page_title="HODEAI Bot Server", page_icon="🤖", layout="wide")
 st.title("🤖 HODEAI Bot Server")
 
+# Initialize Session State for UI Status
+if 'bot_active' not in st.session_state:
+    st.session_state.bot_active = False
+
 # --- GOOGLE SHEETS SETUP ---
 SHEET_NAME = "TPSC_Bot_Logs"
 
@@ -45,15 +49,17 @@ def log_to_sheet(message, answer_text, verdict="ERROR"):
     except Exception as e:
         print(f"❌ Logging Failed: {e}")
 
-# 2. LOAD SECRETS & INITIALIZE BOT GLOBALLY
+# 2. LOAD SECRETS & INITIALIZE BOT
 try:
     gemini_key = st.secrets["GEMINI_API_KEY"]
     serper_key = st.secrets["SERPER_API_KEY"]
     bot_token = st.secrets["TELEGRAM_BOT_TOKEN"]
     genai.configure(api_key=gemini_key)
     
-    # Initialize Bot Globally so the Thread can see it
-    bot = telebot.TeleBot(bot_token)
+    # Singleton Pattern for Bot Instance
+    if 'bot_instance' not in st.session_state:
+        st.session_state.bot_instance = telebot.TeleBot(bot_token, threaded=False)
+    bot = st.session_state.bot_instance
 except Exception as e:
     st.error(f"Secrets Error: {e}")
     st.stop()
@@ -103,19 +109,21 @@ def extract_verdict(text):
     return "UNKNOWN"
 
 # 5. BOT HANDLERS
-# Only register handlers if they don't exist yet
 if not bot.message_handlers:
     
     @bot.message_handler(commands=['start', 'help'])
     def send_welcome(message):
+        if not st.session_state.bot_active: return # Ignore if offline
         welcome_text = """
         👋 *Halo! Saya HODEAI Bot.*
-        Kirimkan judul berita atau rumor untuk cek fakta.
+        Kirimkan judul berita untuk cek fakta.
         """
         bot.reply_to(message, welcome_text, parse_mode="Markdown")
 
     @bot.message_handler(func=lambda message: True and not message.text.startswith('/'))
     def handle_message(message):
+        if not st.session_state.bot_active: return # Ignore if offline
+        
         user_text = message.text
         chat_id = message.chat.id
         
@@ -202,30 +210,26 @@ if not bot.message_handlers:
             bot.send_message(chat_id, err_msg)
             log_to_sheet(message, err_msg, "SYSTEM ERROR")
 
-# 5.1 BACKGROUND THREAD FUNCTION
+# 5.1 BACKGROUND THREAD
 def start_bot_background():
     try:
-        # ACCESS GLOBAL BOT DIRECTLY. DO NOT USE SESSION STATE.
-        bot.infinity_polling(timeout=10, long_polling_timeout=5)
+        # Access session state bot instance
+        if 'bot_instance' in st.session_state:
+            st.session_state.bot_instance.infinity_polling(timeout=10, long_polling_timeout=5)
     except Exception as e:
-        print(f"Bot Polling Error: {e}")
+        print(f"Bot Error: {e}")
 
-# 6. DASHBOARD
+# 6. DASHBOARD (FIXED STATUS LOGIC)
 col1, col2 = st.columns([1, 2])
 
 with col1:
     st.subheader("⚙️ Control Panel")
     
-    # --- GLOBAL STATUS CHECK ---
-    is_running_global = False
-    for thread in threading.enumerate():
-        if thread.name == "TPSC_Worker":
-            is_running_global = True
-            break
-            
-    if is_running_global:
+    # --- UI STATUS CHECK ---
+    # We trust session state for the visual indicator
+    if st.session_state.bot_active:
         st.success("🟢 **STATUS: ONLINE**")
-        st.caption("Bot thread is active.")
+        st.caption("Bot is active.")
     else:
         st.error("🔴 **STATUS: OFFLINE**")
         st.caption("Bot is stopped.")
@@ -233,32 +237,25 @@ with col1:
     st.markdown("---")
 
     # --- BUTTON LOGIC ---
-    if not is_running_global:
+    if not st.session_state.bot_active:
         if st.button("🚀 START BOT POLLING", type="primary"):
-            # 1. Clear any old stop signals
-            if hasattr(bot, 'stop_polling_flag'):
-                bot.stop_polling_flag = False
-            
-            # 2. Start Thread
+            # 1. Start Thread
             t = threading.Thread(target=start_bot_background, name="TPSC_Worker")
             t.daemon = True
             t.start()
+            
+            # 2. Update UI State
+            st.session_state.bot_active = True
             st.rerun()
     else:
-        # --- FIXED STOP LOGIC ---
-        if st.button("🛑 STOP BOT (Shutdown)"):
-            with st.spinner("Stopping threads..."):
-                # 1. Force the bot to stop listening
-                try:
-                    bot.stop_polling()
-                except:
-                    pass
-                
-                # 2. Wait a moment for the thread to die naturally
-                time.sleep(2)
-                
-                # 3. Refresh to update the Red/Green status
-                st.rerun()
+        if st.button("🛑 STOP BOT"):
+            # 1. Tell Telegram to stop listening
+            if 'bot_instance' in st.session_state:
+                st.session_state.bot_instance.stop_polling()
+            
+            # 2. Update UI State immediately
+            st.session_state.bot_active = False
+            st.rerun()
 
 with col2:
     st.subheader("📜 Live Google Sheet Logs")
@@ -276,6 +273,6 @@ with col2:
                 else:
                     st.info("Sheet is connected but empty.")
             except:
-                st.warning("Could not read data. Check headers.")
+                st.warning("Could not read data.")
         else:
             st.error("❌ Connection Failed.")
