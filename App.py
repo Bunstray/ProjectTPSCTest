@@ -286,6 +286,7 @@ tab1, tab2 = st.tabs(["🚀 SERVER CONTROL", "📊 USER STATISTICS"])
 
 with tab1:
     st.subheader("Process Management")
+    
     if is_running_global:
         st.success("✅ **The Bot is currently ACTIVE.**")
         st.info("To stop, close this tab.")
@@ -315,10 +316,10 @@ with tab2:
                 if "User ID" in df.columns:
                     st.subheader("🏆 Top Users")
                     
-                    # 1. Group by User to count messages
+                    # 1. Group by User
                     user_stats = df.groupby(["User ID", "Name", "Username"]).size().reset_index(name='Total Chats')
                     
-                    # 2. Get Last Active time for each user
+                    # 2. Get Last Active time
                     if "Timestamp" in df.columns:
                         last_active = df.groupby("User ID")["Timestamp"].max().reset_index(name='Last Active')
                         user_stats = pd.merge(user_stats, last_active, on="User ID")
@@ -326,12 +327,13 @@ with tab2:
                     # 3. Sort by most active
                     user_stats = user_stats.sort_values(by="Total Chats", ascending=False)
                     
+                    # 4. DISPLAY AS NORMAL INTEGER (Messages Sent)
                     st.dataframe(
                         user_stats, 
                         use_container_width=True,
                         column_config={
                             "User ID": st.column_config.TextColumn("User ID"),
-                            "Total Chats": st.column_config.ProgressColumn("Activity Level", format="%d", min_value=0, max_value=int(user_stats["Total Chats"].max()))
+                            "Total Chats": st.column_config.NumberColumn("Messages Sent", format="%d")
                         }
                     )
                     
