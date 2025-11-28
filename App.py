@@ -17,10 +17,6 @@ from datetime import datetime, timedelta
 st.set_page_config(page_title="HODEAI Bot Server", page_icon="🤖", layout="wide")
 st.title("🤖 HODEAI Bot Server")
 
-# Initialize Session State for UI Status
-if 'bot_active' not in st.session_state:
-    st.session_state.bot_active = False
-
 # --- GOOGLE SHEETS SETUP ---
 SHEET_NAME = "TPSC_Bot_Logs"
 
@@ -56,7 +52,7 @@ try:
     bot_token = st.secrets["TELEGRAM_BOT_TOKEN"]
     genai.configure(api_key=gemini_key)
     
-    # Singleton Pattern for Bot Instance
+    # We use session state to hold the bot OBJECT, but not the status
     if 'bot_instance' not in st.session_state:
         st.session_state.bot_instance = telebot.TeleBot(bot_token, threaded=False)
     bot = st.session_state.bot_instance
@@ -113,7 +109,6 @@ if not bot.message_handlers:
     
     @bot.message_handler(commands=['start', 'help'])
     def send_welcome(message):
-        if not st.session_state.bot_active: return # Ignore if offline
         welcome_text = """
         👋 *Halo! Saya HODEAI Bot.*
         Kirimkan judul berita untuk cek fakta.
@@ -122,8 +117,6 @@ if not bot.message_handlers:
 
     @bot.message_handler(func=lambda message: True and not message.text.startswith('/'))
     def handle_message(message):
-        if not st.session_state.bot_active: return # Ignore if offline
-        
         user_text = message.text
         chat_id = message.chat.id
         
@@ -213,23 +206,27 @@ if not bot.message_handlers:
 # 5.1 BACKGROUND THREAD
 def start_bot_background():
     try:
-        # Access session state bot instance
-        if 'bot_instance' in st.session_state:
-            st.session_state.bot_instance.infinity_polling(timeout=10, long_polling_timeout=5)
+        # Use the global bot instance directly in the thread
+        bot.infinity_polling(timeout=10, long_polling_timeout=5)
     except Exception as e:
         print(f"Bot Error: {e}")
 
-# 6. DASHBOARD (FIXED STATUS LOGIC)
+# 6. DASHBOARD (GLOBAL STATUS LOGIC)
 col1, col2 = st.columns([1, 2])
 
 with col1:
     st.subheader("⚙️ Control Panel")
     
-    # --- UI STATUS CHECK ---
-    # We trust session state for the visual indicator
-    if st.session_state.bot_active:
+    # --- GLOBAL THREAD CHECK (This works on all devices) ---
+    is_running_global = False
+    for thread in threading.enumerate():
+        if thread.name == "TPSC_Worker":
+            is_running_global = True
+            break
+            
+    if is_running_global:
         st.success("🟢 **STATUS: ONLINE**")
-        st.caption("Bot is active.")
+        st.caption("Bot thread is active on server.")
     else:
         st.error("🔴 **STATUS: OFFLINE**")
         st.caption("Bot is stopped.")
@@ -237,24 +234,23 @@ with col1:
     st.markdown("---")
 
     # --- BUTTON LOGIC ---
-    if not st.session_state.bot_active:
+    if not is_running_global:
         if st.button("🚀 START BOT POLLING", type="primary"):
-            # 1. Start Thread
+            # 1. Reset Stop Flag
+            if hasattr(bot, 'stop_polling_flag'):
+                bot.stop_polling_flag = False
+                
+            # 2. Start Thread with Specific Name
             t = threading.Thread(target=start_bot_background, name="TPSC_Worker")
             t.daemon = True
             t.start()
-            
-            # 2. Update UI State
-            st.session_state.bot_active = True
             st.rerun()
     else:
-        if st.button("🛑 STOP BOT"):
-            # 1. Tell Telegram to stop listening
-            if 'bot_instance' in st.session_state:
-                st.session_state.bot_instance.stop_polling()
-            
-            # 2. Update UI State immediately
-            st.session_state.bot_active = False
+        if st.button("🛑 STOP BOT (Shutdown)"):
+            try:
+                bot.stop_polling() # Tell Telebot to stop
+                time.sleep(1)      # Wait for thread to finish
+            except: pass
             st.rerun()
 
 with col2:
