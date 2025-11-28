@@ -4,3 +4,5 @@ requests
 pyTelegramBotAPI
 scikit-learn
 pandas
+gspread
+oauth2client
