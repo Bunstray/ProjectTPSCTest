@@ -217,7 +217,6 @@ with col1:
     st.subheader("⚙️ Control Panel")
     
     # --- GLOBAL STATUS CHECK ---
-    # Scans for the specific thread name
     is_running_global = False
     for thread in threading.enumerate():
         if thread.name == "TPSC_Worker":
@@ -226,24 +225,40 @@ with col1:
             
     if is_running_global:
         st.success("🟢 **STATUS: ONLINE**")
-        st.caption("Bot thread found running.")
+        st.caption("Bot thread is active.")
     else:
         st.error("🔴 **STATUS: OFFLINE**")
-        st.caption("Bot thread not found.")
+        st.caption("Bot is stopped.")
         
     st.markdown("---")
 
     # --- BUTTON LOGIC ---
     if not is_running_global:
         if st.button("🚀 START BOT POLLING", type="primary"):
-            # Start thread with a specific name so we can find it
+            # 1. Clear any old stop signals
+            if hasattr(bot, 'stop_polling_flag'):
+                bot.stop_polling_flag = False
+            
+            # 2. Start Thread
             t = threading.Thread(target=start_bot_background, name="TPSC_Worker")
             t.daemon = True
             t.start()
             st.rerun()
     else:
-        if st.button("🛑 STOP BOT (Reload Page)"):
-            st.rerun()
+        # --- FIXED STOP LOGIC ---
+        if st.button("🛑 STOP BOT (Shutdown)"):
+            with st.spinner("Stopping threads..."):
+                # 1. Force the bot to stop listening
+                try:
+                    bot.stop_polling()
+                except:
+                    pass
+                
+                # 2. Wait a moment for the thread to die naturally
+                time.sleep(2)
+                
+                # 3. Refresh to update the Red/Green status
+                st.rerun()
 
 with col2:
     st.subheader("📜 Live Google Sheet Logs")
