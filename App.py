@@ -52,8 +52,8 @@ try:
     bot_token = st.secrets["TELEGRAM_BOT_TOKEN"]
     genai.configure(api_key=gemini_key)
     
-    # We use session state to hold the bot OBJECT, but not the status
     if 'bot_instance' not in st.session_state:
+        # threaded=False is important for manual thread control
         st.session_state.bot_instance = telebot.TeleBot(bot_token, threaded=False)
     bot = st.session_state.bot_instance
 except Exception as e:
@@ -206,27 +206,32 @@ if not bot.message_handlers:
 # 5.1 BACKGROUND THREAD
 def start_bot_background():
     try:
-        # Use the global bot instance directly in the thread
-        bot.infinity_polling(timeout=10, long_polling_timeout=5)
+        if 'bot_instance' in st.session_state:
+            # interval=2 makes it check slower, easier to stop
+            st.session_state.bot_instance.infinity_polling(timeout=10, long_polling_timeout=5)
     except Exception as e:
         print(f"Bot Error: {e}")
 
-# 6. DASHBOARD (GLOBAL STATUS LOGIC)
+# 6. DASHBOARD
 col1, col2 = st.columns([1, 2])
 
 with col1:
     st.subheader("⚙️ Control Panel")
     
-    # --- GLOBAL THREAD CHECK (This works on all devices) ---
+    # --- GLOBAL THREAD CHECK ---
+    target_thread = None
     is_running_global = False
+    
+    # Find the specific worker thread
     for thread in threading.enumerate():
         if thread.name == "TPSC_Worker":
             is_running_global = True
+            target_thread = thread
             break
             
     if is_running_global:
         st.success("🟢 **STATUS: ONLINE**")
-        st.caption("Bot thread is active on server.")
+        st.caption("Bot thread is active.")
     else:
         st.error("🔴 **STATUS: OFFLINE**")
         st.caption("Bot is stopped.")
@@ -236,22 +241,34 @@ with col1:
     # --- BUTTON LOGIC ---
     if not is_running_global:
         if st.button("🚀 START BOT POLLING", type="primary"):
-            # 1. Reset Stop Flag
+            # Reset stop flag just in case
             if hasattr(bot, 'stop_polling_flag'):
                 bot.stop_polling_flag = False
                 
-            # 2. Start Thread with Specific Name
             t = threading.Thread(target=start_bot_background, name="TPSC_Worker")
             t.daemon = True
             t.start()
             st.rerun()
     else:
-        if st.button("🛑 STOP BOT (Shutdown)"):
-            try:
-                bot.stop_polling() # Tell Telebot to stop
-                time.sleep(1)      # Wait for thread to finish
-            except: pass
-            st.rerun()
+        if st.button("🛑 STOP BOT (Wait 3s)"):
+            with st.spinner("Stopping bot... please wait..."):
+                # 1. Send Stop Signal
+                bot.stop_polling()
+                
+                # 2. FORCE WAIT until thread actually disappears
+                # We loop 10 times (5 seconds max) to verify it died
+                for _ in range(10):
+                    time.sleep(0.5)
+                    # Check if thread is still in the list
+                    still_alive = False
+                    for t in threading.enumerate():
+                        if t.name == "TPSC_Worker":
+                            still_alive = True
+                    if not still_alive:
+                        break # It died! Exit loop.
+                
+                # 3. Refresh UI
+                st.rerun()
 
 with col2:
     st.subheader("📜 Live Google Sheet Logs")
