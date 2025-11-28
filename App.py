@@ -18,7 +18,6 @@ st.set_page_config(page_title="HODEAI Bot Server", page_icon="🤖", layout="wid
 st.title("🤖 HODEAI Bot Server")
 
 # --- GLOBAL VARIABLES ---
-# We use st.session_state to ensure we don't lose the bot instance during refresh
 if 'bot_instance' not in st.session_state:
     st.session_state.bot_instance = None
 
@@ -123,8 +122,9 @@ if not bot.message_handlers:
 
     @bot.message_handler(func=lambda message: True and not message.text.startswith('/'))
     def handle_message(message):
-        # KILL SWITCH: Check if we are supposed to be running
-        # If the Global Thread is dead, ignore the message.
+        # GLOBAL THREAD CHECK
+        # If the thread is dead (server restarted), don't process messages
+        # This prevents "Zombie" bots from replying
         is_thread_alive = False
         for t in threading.enumerate():
             if t.name == "TPSC_Worker":
@@ -132,7 +132,7 @@ if not bot.message_handlers:
                 break
         
         if not is_thread_alive:
-            return # IGNORE MESSAGE if bot is supposed to be offline
+            return 
 
         user_text = message.text
         chat_id = message.chat.id
@@ -223,9 +223,8 @@ if not bot.message_handlers:
 # 5.1 BACKGROUND THREAD
 def start_bot_background():
     try:
-        # restart_on_change=False IS THE KEY FIX. 
-        # It prevents the bot from resurrecting when we stop it.
-        st.session_state.bot_instance.infinity_polling(timeout=1, long_polling_timeout=1, restart_on_change=False)
+        # Simple polling, no complex restart logic
+        st.session_state.bot_instance.infinity_polling(timeout=10, long_polling_timeout=5)
     except Exception as e:
         print(f"Bot Error: {e}")
 
@@ -244,7 +243,8 @@ with col1:
             
     if is_running_global:
         st.success("🟢 **STATUS: ONLINE**")
-        st.caption("Bot thread is active.")
+        st.caption("Bot is active.")
+        # NO STOP BUTTON HERE.
     else:
         st.error("🔴 **STATUS: OFFLINE**")
         st.caption("Bot is stopped.")
@@ -261,19 +261,6 @@ with col1:
             t = threading.Thread(target=start_bot_background, name="TPSC_Worker")
             t.daemon = True
             t.start()
-            st.rerun()
-    else:
-        if st.button("🛑 STOP BOT"):
-            # 1. STOP THE BOT
-            bot.stop_polling()
-            
-            # 2. UI FEEDBACK
-            st.warning("Stopping... Please wait 2 seconds.")
-            
-            # 3. FORCE WAIT (Actually wait for the thread to close)
-            time.sleep(2)
-            
-            # 4. REFRESH
             st.rerun()
 
 with col2:
