@@ -173,9 +173,29 @@ if not bot.message_handlers:
             
             _Powered by HODE AI_
             """
-            model_gemini = genai.GenerativeModel('gemini-2.0-flash')
-            response = model_gemini.generate_content(prompt)
-            final_msg = response.text
+
+        # --- RETRY LOGIC START ---
+            try:
+                model_gemini = genai.GenerativeModel('gemini-2.0-flash')
+                response = model_gemini.generate_content(prompt)
+                final_msg = response.text
+                
+            except Exception as e:
+                # Check if the error string contains "429" or "exhausted"
+                if "429" in str(e) or "exhausted" in str(e):
+                    bot.send_message(chat_id, "⏳ Server sibuk (Traffic Tinggi). Mencoba lagi dalam 5 detik...")
+                    time.sleep(5) # Wait 5 seconds
+                    
+                    # Try one more time
+                    try:
+                        response = model_gemini.generate_content(prompt)
+                        final_msg = response.text
+                    except:
+                        final_msg = "⚠️ Server Gemini Overload. Coba 1 menit lagi."
+                else:
+                    # If it's a different error, just crash normally
+                    raise e
+            # --- RETRY LOGIC END ---
 
             verdict_text = extract_verdict(final_msg)
 
