@@ -111,9 +111,32 @@ def extract_verdict(text):
         return clean_verdict
     return "UNKNOWN"
 
-# 5. BOT HANDLER
+# 5. BOT HANDLERS
+# We check if handlers exist to avoid duplicating them on refresh
 if not bot.message_handlers:
-    @bot.message_handler(func=lambda message: True)
+    
+    # --- HANDLER 1: COMMANDS (Free & Fast) ---
+    # This catches /start, /help, /info so they don't waste AI tokens
+    @bot.message_handler(commands=['start', 'help'])
+    def send_welcome(message):
+        welcome_text = """
+        👋 *Halo! Saya HODEAI Bot.*
+        
+        Saya adalah asisten AI Cek Fakta Hybrid.
+        Kirimkan judul berita, rumor, atau pesan forward WA ke sini.
+        
+        *Cara kerja saya:*
+        1. 🔍 Mencari bukti di Google.
+        2. 🧠 Menggunakan AI Lokal untuk deteksi pola hoaks.
+        3. 🤖 Menggunakan Gemini untuk analisis final.
+        
+        _Silakan kirim teks berita Anda sekarang!_
+        """
+        bot.reply_to(message, welcome_text, parse_mode="Markdown")
+
+    # --- HANDLER 2: TEXT MESSAGES (Expensive AI) ---
+    # The lambda function ensures we only process text that IS NOT a command
+    @bot.message_handler(func=lambda message: True and not message.text.startswith('/'))
     def handle_message(message):
         user_text = message.text
         chat_id = message.chat.id
@@ -169,39 +192,28 @@ if not bot.message_handlers:
             [Jelaskan kesimpulan dalam 2 kalimat]
             
             *🔗 Sumber:*
-            [List 2 hingga 3 link terbaik]
+            [List 2 link terbaik]
             
             _Powered by HODE AI_
             """
-
-        # --- RETRY LOGIC START ---
+            
+            # RETRY LOGIC FOR 429 ERRORS
             try:
                 model_gemini = genai.GenerativeModel('gemini-2.0-flash')
                 response = model_gemini.generate_content(prompt)
                 final_msg = response.text
-                
             except Exception as e:
-                # Check if the error string contains "429" or "exhausted"
                 if "429" in str(e) or "exhausted" in str(e):
-                    bot.send_message(chat_id, "⏳ Server sibuk (Traffic Tinggi). Mencoba lagi dalam 5 detik...")
-                    time.sleep(5) # Wait 5 seconds
-                    
-                    # Try one more time
-                    try:
-                        response = model_gemini.generate_content(prompt)
-                        final_msg = response.text
-                    except:
-                        final_msg = "⚠️ Server Gemini Overload. Coba 1 menit lagi."
+                    # Fallback to stable model if flash is busy
+                    model_gemini = genai.GenerativeModel('gemini-1.5-flash')
+                    response = model_gemini.generate_content(prompt)
+                    final_msg = response.text
                 else:
-                    # If it's a different error, just crash normally
                     raise e
-            # --- RETRY LOGIC END ---
 
             verdict_text = extract_verdict(final_msg)
 
             bot.delete_message(chat_id, temp_msg.message_id) 
-            
-            # Log with the extracted verdict
             log_to_sheet(message, final_msg, verdict_text)
             
             try:
@@ -214,24 +226,53 @@ if not bot.message_handlers:
             bot.send_message(chat_id, err_msg)
             log_to_sheet(message, err_msg, "SYSTEM ERROR")
 
-def start_bot_background():
-    try: bot.infinity_polling(timeout=10, long_polling_timeout=5)
-    except Exception as e: print(f"Bot Error: {e}")
-
 # 6. DASHBOARD
 col1, col2 = st.columns([1, 2])
 
 with col1:
     st.subheader("⚙️ Control Panel")
+    
+    # --- STATUS INDICATOR ---
+    # This checks the session state and shows a big colored box
+    if st.session_state.bot_running:
+        st.success("🟢 **STATUS: ONLINE**")
+        st.caption("Bot is active and listening to Telegram.")
+    else:
+        st.error("🔴 **STATUS: OFFLINE**")
+        st.caption("Bot is sleeping. Click start to activate.")
+        
+    st.markdown("---")
+
+    # --- BUTTON LOGIC ---
     if not st.session_state.bot_running:
-        if st.button("🚀 START BOT POLLING"):
+        # SHOW START BUTTON (Primary Color)
+        if st.button("🚀 START BOT POLLING", type="primary"):
+            # Start the background thread
             t = threading.Thread(target=start_bot_background)
             t.daemon = True
             t.start()
+            
+            # Update state and refresh UI immediately
             st.session_state.bot_running = True
             st.rerun()
     else:
-        st.success("✅ Bot is Running")
+        # SHOW STOP BUTTON (Secondary Color)
+        # Note: Stopping a thread in Python is hard, so we just reload the page to kill it.
+        if st.button("🛑 STOP BOT (Reload Page)"):
+            st.session_state.bot_running = False
+            st.rerun()
+
+    st.markdown("---")
+    
+    # DOWNLOAD BUTTON
+    if os.path.exists(LOG_FILE):
+        with open(LOG_FILE, "rb") as f:
+            st.download_button(
+                label="📥 Download Log (CSV)",
+                data=f,
+                file_name="tpsc_logs.csv",
+                mime="text/csv"
+            )
 
 with col2:
     st.subheader("📜 Live Google Sheet Logs")
