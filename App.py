@@ -38,7 +38,9 @@ def log_to_sheet(message, answer_text, verdict="ERROR"):
     try:
         sheet = connect_to_sheet()
         if sheet:
-            timestamp = timestamp = (datetime.utcnow() + timedelta(hours=7)).strftime("%Y-%m-%d %H:%M:%S")
+            # FIXED: Syntax error removed here (was timestamp = timestamp =)
+            timestamp = (datetime.utcnow() + timedelta(hours=7)).strftime("%Y-%m-%d %H:%M:%S")
+            
             user_id = str(message.from_user.id)
             username = f"@{message.from_user.username}" if message.from_user.username else "No Username"
             first_name = message.from_user.first_name
@@ -112,11 +114,9 @@ def extract_verdict(text):
     return "UNKNOWN"
 
 # 5. BOT HANDLERS
-# We check if handlers exist to avoid duplicating them on refresh
 if not bot.message_handlers:
     
     # --- HANDLER 1: COMMANDS (Free & Fast) ---
-    # This catches /start, /help, /info so they don't waste AI tokens
     @bot.message_handler(commands=['start', 'help'])
     def send_welcome(message):
         welcome_text = """
@@ -124,18 +124,10 @@ if not bot.message_handlers:
         
         Saya adalah asisten AI Cek Fakta Hybrid.
         Kirimkan judul berita, rumor, atau pesan forward WA ke sini.
-        
-        *Cara kerja saya:*
-        1. 🔍 Mencari bukti di Google.
-        2. 🧠 Menggunakan AI Lokal untuk deteksi pola hoaks.
-        3. 🤖 Menggunakan Gemini untuk analisis final.
-        
-        _Silakan kirim teks berita Anda sekarang!_
         """
         bot.reply_to(message, welcome_text, parse_mode="Markdown")
 
-    # --- HANDLER 2: TEXT MESSAGES (Expensive AI) ---
-    # The lambda function ensures we only process text that IS NOT a command
+    # --- HANDLER 2: TEXT MESSAGES ---
     @bot.message_handler(func=lambda message: True and not message.text.startswith('/'))
     def handle_message(message):
         user_text = message.text
@@ -225,8 +217,8 @@ if not bot.message_handlers:
             err_msg = f"⚠️ System Error: {str(e)}"
             bot.send_message(chat_id, err_msg)
             log_to_sheet(message, err_msg, "SYSTEM ERROR")
-        
-# 5.1 BACKGROUND BOT START FUNCTION
+
+# 5.1 BACKGROUND THREAD FUNCTION
 def start_bot_background():
     try:
         # Infinity polling keeps the bot running forever
@@ -241,7 +233,6 @@ with col1:
     st.subheader("⚙️ Control Panel")
     
     # --- STATUS INDICATOR ---
-    # This checks the session state and shows a big colored box
     if st.session_state.bot_running:
         st.success("🟢 **STATUS: ONLINE**")
         st.caption("Bot is active and listening to Telegram.")
@@ -253,34 +244,16 @@ with col1:
 
     # --- BUTTON LOGIC ---
     if not st.session_state.bot_running:
-        # SHOW START BUTTON (Primary Color)
         if st.button("🚀 START BOT POLLING", type="primary"):
-            # Start the background thread
             t = threading.Thread(target=start_bot_background)
             t.daemon = True
             t.start()
-            
-            # Update state and refresh UI immediately
             st.session_state.bot_running = True
             st.rerun()
     else:
-        # SHOW STOP BUTTON (Secondary Color)
-        # Note: Stopping a thread in Python is hard, so we just reload the page to kill it.
         if st.button("🛑 STOP BOT (Reload Page)"):
             st.session_state.bot_running = False
             st.rerun()
-
-    st.markdown("---")
-    
-    # DOWNLOAD BUTTON
-    if os.path.exists(LOG_FILE):
-        with open(LOG_FILE, "rb") as f:
-            st.download_button(
-                label="📥 Download Log (CSV)",
-                data=f,
-                file_name="tpsc_logs.csv",
-                mime="text/csv"
-            )
 
 with col2:
     st.subheader("📜 Live Google Sheet Logs")
@@ -292,6 +265,9 @@ with col2:
                 data = sheet.get_all_records()
                 if data:
                     df = pd.DataFrame(data)
+                    # Convert Timestamp for Sorting
+                    if "Timestamp" in df.columns:
+                        df = df.sort_values(by="Timestamp", ascending=False)
                     st.dataframe(df, height=400)
                 else:
                     st.info("Sheet is connected but empty.")
