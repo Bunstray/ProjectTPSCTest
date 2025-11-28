@@ -13,9 +13,26 @@ import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 from datetime import datetime, timedelta
 
-# 1. SETUP PAGE
-st.set_page_config(page_title="HODEAI Bot Server", page_icon="🤖", layout="wide")
-st.title("🤖 HODEAI Bot Server")
+# 1. SETUP PAGE CONFIGURATION
+st.set_page_config(
+    page_title="HODEAI Server", 
+    page_icon="🎛️", 
+    layout="wide",
+    initial_sidebar_state="collapsed"
+)
+
+# --- CUSTOM CSS FOR DASHBOARD LOOK ---
+st.markdown("""
+<style>
+    .stMetric {
+        background-color: #0E1117;
+        padding: 15px;
+        border-radius: 10px;
+        border: 1px solid #262730;
+    }
+    div[data-testid="stHeader"] {display: none;}
+</style>
+""", unsafe_allow_html=True)
 
 # --- GLOBAL VARIABLES ---
 if 'bot_instance' not in st.session_state:
@@ -39,11 +56,14 @@ def log_to_sheet(message, answer_text, verdict="ERROR"):
     try:
         sheet = connect_to_sheet()
         if sheet:
+            # GMT+7 TIMEZONE
             timestamp = (datetime.utcnow() + timedelta(hours=7)).strftime("%Y-%m-%d %H:%M:%S")
+            
             user_id = str(message.from_user.id)
             username = f"@{message.from_user.username}" if message.from_user.username else "No Username"
             first_name = message.from_user.first_name
             question = message.text
+            
             sheet.append_row([timestamp, user_id, username, first_name, question, answer_text, verdict])
             print(f"✅ Logged: {verdict}")
     except Exception as e:
@@ -56,7 +76,6 @@ try:
     bot_token = st.secrets["TELEGRAM_BOT_TOKEN"]
     genai.configure(api_key=gemini_key)
     
-    # Initialize Bot ONLY if it doesn't exist
     if st.session_state.bot_instance is None:
         st.session_state.bot_instance = telebot.TeleBot(bot_token, threaded=False)
     
@@ -122,17 +141,14 @@ if not bot.message_handlers:
 
     @bot.message_handler(func=lambda message: True and not message.text.startswith('/'))
     def handle_message(message):
-        # GLOBAL THREAD CHECK
-        # If the thread is dead (server restarted), don't process messages
-        # This prevents "Zombie" bots from replying
+        # THREAD CHECK to prevent Zombie bots
         is_thread_alive = False
         for t in threading.enumerate():
             if t.name == "TPSC_Worker":
                 is_thread_alive = True
                 break
         
-        if not is_thread_alive:
-            return 
+        if not is_thread_alive: return 
 
         user_text = message.text
         chat_id = message.chat.id
@@ -223,62 +239,88 @@ if not bot.message_handlers:
 # 5.1 BACKGROUND THREAD
 def start_bot_background():
     try:
-        # Simple polling, no complex restart logic
         st.session_state.bot_instance.infinity_polling(timeout=10, long_polling_timeout=5)
     except Exception as e:
         print(f"Bot Error: {e}")
 
-# 6. DASHBOARD
-col1, col2 = st.columns([1, 2])
+# =========================================================
+# 6. UI DASHBOARD IMPLEMENTATION
+# =========================================================
 
-with col1:
-    st.subheader("⚙️ Control Panel")
-    
-    # --- GLOBAL THREAD CHECK ---
-    is_running_global = False
-    for thread in threading.enumerate():
-        if thread.name == "TPSC_Worker":
-            is_running_global = True
-            break
-            
+# Check Status Global
+is_running_global = False
+for thread in threading.enumerate():
+    if thread.name == "TPSC_Worker":
+        is_running_global = True
+        break
+
+# --- HEADER ---
+st.title("🎛️ HODEAI Control Panel")
+st.caption(f"Server Time: {(datetime.utcnow() + timedelta(hours=7)).strftime('%H:%M:%S (GMT+7)')}")
+
+# --- METRICS ROW ---
+m1, m2, m3 = st.columns(3)
+
+with m1:
     if is_running_global:
-        st.success("🟢 **STATUS: ONLINE**")
-        st.caption("Bot is active.")
-        # NO STOP BUTTON HERE.
+        st.metric("System Status", "ONLINE", "Running")
     else:
-        st.error("🔴 **STATUS: OFFLINE**")
-        st.caption("Bot is stopped.")
-        
-    st.markdown("---")
+        st.metric("System Status", "OFFLINE", "- Stopped")
 
-    # --- BUTTON LOGIC ---
-    if not is_running_global:
-        if st.button("🚀 START BOT POLLING", type="primary"):
-            # Ensure no lingering stop flags
+with m2:
+    if connect_to_sheet():
+        st.metric("Database", "CONNECTED", "Google Sheets")
+    else:
+        st.metric("Database", "ERROR", "Check Secrets")
+
+with m3:
+    if model:
+        st.metric("AI Brain", "ACTIVE", "Local Model Loaded")
+    else:
+        st.metric("AI Brain", "MISSING", "Search Only Mode")
+
+st.markdown("---")
+
+# --- MAIN CONTROLS ---
+tab1, tab2 = st.tabs(["🚀 SERVER CONTROL", "📊 DATA LOGS"])
+
+with tab1:
+    st.subheader("Process Management")
+    
+    if is_running_global:
+        st.success("✅ **The Bot is currently ACTIVE running in the background.**")
+        st.info("To stop the bot, please close this browser tab or kill the terminal process.")
+    else:
+        st.warning("⚠️ **The Bot is currently STOPPED.**")
+        if st.button("▶️ ACTIVATE BOT SERVER", type="primary", use_container_width=True):
             if hasattr(bot, 'stop_polling_flag'):
                 bot.stop_polling_flag = False
-            
+                
             t = threading.Thread(target=start_bot_background, name="TPSC_Worker")
             t.daemon = True
             t.start()
             st.rerun()
 
-with col2:
-    st.subheader("📜 Live Google Sheet Logs")
-    if st.button("🔄 Check Sheet Status"):
-        sheet = connect_to_sheet()
-        if sheet:
-            st.success(f"✅ Connected to: {SHEET_NAME}")
-            try:
-                data = sheet.get_all_records()
-                if data:
-                    df = pd.DataFrame(data)
-                    if "Timestamp" in df.columns:
-                        df = df.sort_values(by="Timestamp", ascending=False)
-                    st.dataframe(df, height=400)
-                else:
-                    st.info("Sheet is connected but empty.")
-            except:
-                st.warning("Could not read data.")
-        else:
-            st.error("❌ Connection Failed.")
+with tab2:
+    col_a, col_b = st.columns([4,1])
+    with col_a:
+        st.subheader("Live Interaction Logs")
+    with col_b:
+        if st.button("🔄 Refresh Data"):
+            st.rerun()
+            
+    sheet = connect_to_sheet()
+    if sheet:
+        try:
+            data = sheet.get_all_records()
+            if data:
+                df = pd.DataFrame(data)
+                if "Timestamp" in df.columns:
+                    df = df.sort_values(by="Timestamp", ascending=False)
+                st.dataframe(df, use_container_width=True, height=500)
+            else:
+                st.info("Database is empty.")
+        except Exception as e:
+            st.error(f"Error reading database: {e}")
+    else:
+        st.error("Cannot connect to Google Sheets.")
