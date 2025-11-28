@@ -21,7 +21,7 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
-# --- CUSTOM CSS FOR DASHBOARD LOOK ---
+# --- CUSTOM CSS ---
 st.markdown("""
 <style>
     .stMetric {
@@ -30,7 +30,6 @@ st.markdown("""
         border-radius: 10px;
         border: 1px solid #262730;
     }
-    div[data-testid="stHeader"] {display: none;}
 </style>
 """, unsafe_allow_html=True)
 
@@ -56,9 +55,7 @@ def log_to_sheet(message, answer_text, verdict="ERROR"):
     try:
         sheet = connect_to_sheet()
         if sheet:
-            # GMT+7 TIMEZONE
             timestamp = (datetime.utcnow() + timedelta(hours=7)).strftime("%Y-%m-%d %H:%M:%S")
-            
             user_id = str(message.from_user.id)
             username = f"@{message.from_user.username}" if message.from_user.username else "No Username"
             first_name = message.from_user.first_name
@@ -141,7 +138,6 @@ if not bot.message_handlers:
 
     @bot.message_handler(func=lambda message: True and not message.text.startswith('/'))
     def handle_message(message):
-        # THREAD CHECK to prevent Zombie bots
         is_thread_alive = False
         for t in threading.enumerate():
             if t.name == "TPSC_Worker":
@@ -282,7 +278,7 @@ with m3:
 st.markdown("---")
 
 # --- MAIN CONTROLS ---
-tab1, tab2 = st.tabs(["🚀 SERVER CONTROL", "📊 USER STATISTICS"])
+tab1, tab2 = st.tabs(["🚀 SERVER CONTROL", "📊 DATA & STATISTICS"])
 
 with tab1:
     st.subheader("Process Management")
@@ -311,8 +307,9 @@ with tab2:
                 # ---------------- SECTION A: USER LEADERBOARD ----------------
                 st.subheader("🏆 User Leaderboard")
                 
-                # Search Bar
-                search_query = st.text_input("🔍 Search User", placeholder="Type username, Name, or ID...")
+                col_search, _ = st.columns([2, 1])
+                with col_search:
+                    search_query = st.text_input("🔍 Search User", placeholder="Type username, Name, or ID...")
                 
                 if "User ID" in df.columns:
                     # 1. Calc Stats
@@ -337,15 +334,18 @@ with tab2:
                     styled_stats = user_stats.style.set_properties(
                         subset=['Messages Sent'], 
                         **{'text-align': 'center'}
-                    ).set_table_styles(
-                        [{'selector': 'th', 'props': [('text-align', 'center')]}]
-                    )
+                    ).set_table_styles([
+                        {'selector': 'th.col_heading', 'props': 'text-align: center;'},
+                        {'selector': 'td', 'props': 'text-align: center;'}
+                    ], overwrite=False)
                     
+                    # We remove the NumberColumn config here because it forces Right Align
                     st.dataframe(
                         styled_stats, 
                         use_container_width=True,
                         column_config={
-                            "Messages Sent": st.column_config.NumberColumn("Messages Sent", format="%d")
+                            "User ID": st.column_config.TextColumn("User ID"),
+                            # "Messages Sent": st.column_config.NumberColumn("Messages Sent", format="%d") <- REMOVED to allow CSS Center
                         }
                     )
                 
