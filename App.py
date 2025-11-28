@@ -30,46 +30,15 @@ st.markdown("""
         border-radius: 10px;
         border: 1px solid #262730;
     }
+    /* Force center alignment for table cells */
+    div[data-testid="stDataFrame"] td {
+        text-align: center;
+    }
+    div[data-testid="stDataFrame"] th {
+        text-align: center;
+    }
 </style>
 """, unsafe_allow_html=True)
-
-# ==========================================
-# 🔐 AUTHENTICATION SYSTEM
-# ==========================================
-def check_password():
-    """Returns `True` if the user had the correct password."""
-    
-    def password_entered():
-        """Checks whether a password entered by the user is correct."""
-        if st.session_state["password"] == st.secrets["ADMIN_PASSWORD"]:
-            st.session_state["password_correct"] = True
-            del st.session_state["password"]  # Don't store the password
-        else:
-            st.session_state["password_correct"] = False
-
-    if "password_correct" not in st.session_state:
-        # First run, show input
-        st.text_input(
-            "🔑 Enter Admin Password", type="password", on_change=password_entered, key="password"
-        )
-        return False
-    elif not st.session_state["password_correct"]:
-        # Password incorrect, show input + error
-        st.text_input(
-            "🔑 Enter Admin Password", type="password", on_change=password_entered, key="password"
-        )
-        st.error("😕 Password incorrect")
-        return False
-    else:
-        # Password correct
-        return True
-
-if not check_password():
-    st.stop()  # STOP EXECUTION HERE if not logged in
-
-# ==========================================
-# 🚀 MAIN APP LOGIC (Only runs if logged in)
-# ==========================================
 
 # --- GLOBAL VARIABLES ---
 if 'bot_instance' not in st.session_state:
@@ -176,6 +145,7 @@ if not bot.message_handlers:
 
     @bot.message_handler(func=lambda message: True and not message.text.startswith('/'))
     def handle_message(message):
+        # Allow bot to work even if UI is locked (UptimeRobot Check)
         is_thread_alive = False
         for t in threading.enumerate():
             if t.name == "TPSC_Worker":
@@ -220,9 +190,8 @@ if not bot.message_handlers:
                 evidence_for_gemini += f"{tag} {doc.get('title')} (Link: {link})\n"
 
             prompt = f"""
-            Peran: Kamu adalah HODEAI-Bot.
-            KLAIM: "{user_text}"
-            BUKTI: {evidence_for_gemini}
+            Peran: HODEAI-Bot. Analisis berita ini: "{user_text}". 
+            Bukti: {evidence_for_gemini}
             
             INSTRUKSI:
             1. Hitung Confidence Score (0-100%).
@@ -270,7 +239,7 @@ if not bot.message_handlers:
             bot.send_message(chat_id, err_msg)
             log_to_sheet(message, err_msg, "SYSTEM ERROR")
 
-# 5.1 BACKGROUND THREAD
+# 5.1 BACKGROUND THREAD FUNCTION
 def start_bot_background():
     try:
         st.session_state.bot_instance.infinity_polling(timeout=10, long_polling_timeout=5)
@@ -278,63 +247,79 @@ def start_bot_background():
         print(f"Bot Error: {e}")
 
 # =========================================================
-# 6. UI DASHBOARD IMPLEMENTATION
+# CRITICAL: UPTIMEROBOT AUTO-START LOGIC
 # =========================================================
+# This block MUST be before the password check to work in Headless Mode.
 
-# Check Status Global
 is_running_global = False
 for thread in threading.enumerate():
     if thread.name == "TPSC_Worker":
         is_running_global = True
         break
 
-# --- HEADER ---
+if not is_running_global:
+    # Auto-start thread immediately
+    t = threading.Thread(target=start_bot_background, name="TPSC_Worker")
+    t.daemon = True
+    t.start()
+    print("✅ UptimeRobot Ping: Bot Started Automatically")
+
+# =========================================================
+# 🛑 PASSWORD WALL (UI STOPS HERE)
+# =========================================================
+def check_password():
+    def password_entered():
+        if st.session_state["password"] == st.secrets["ADMIN_PASSWORD"]:
+            st.session_state["password_correct"] = True
+            del st.session_state["password"]
+        else:
+            st.session_state["password_correct"] = False
+
+    if "password_correct" not in st.session_state:
+        st.text_input("🔑 Admin Password", type="password", on_change=password_entered, key="password")
+        return False
+    elif not st.session_state["password_correct"]:
+        st.text_input("🔑 Admin Password", type="password", on_change=password_entered, key="password")
+        st.error("😕 Incorrect")
+        return False
+    else:
+        return True
+
+if not check_password():
+    st.stop() # UI rendering stops here, but Background Thread continues above!
+
+# =========================================================
+# 6. UI DASHBOARD (ADMIN VIEW)
+# =========================================================
+
 st.title("🎛️ HODEAI Control Panel")
 st.caption(f"Server Time: {(datetime.utcnow() + timedelta(hours=7)).strftime('%H:%M:%S (GMT+7)')}")
 
 # --- METRICS ROW ---
 m1, m2, m3 = st.columns(3)
-
 with m1:
-    if is_running_global:
-        st.metric("System Status", "ONLINE", "Running")
-    else:
-        st.metric("System Status", "OFFLINE", "- Stopped")
-
+    if is_running_global: st.metric("System Status", "ONLINE", "Running")
+    else: st.metric("System Status", "ONLINE", "Auto-Starting...")
 with m2:
-    if connect_to_sheet():
-        st.metric("Database", "CONNECTED", "Google Sheets")
-    else:
-        st.metric("Database", "ERROR", "Check Secrets")
-
+    if connect_to_sheet(): st.metric("Database", "CONNECTED", "Google Sheets")
+    else: st.metric("Database", "ERROR", "Check Secrets")
 with m3:
-    if model:
-        st.metric("AI Brain", "ACTIVE", "Local Model Loaded")
-    else:
-        st.metric("AI Brain", "MISSING", "Search Only Mode")
+    if model: st.metric("AI Brain", "ACTIVE", "Local Model Loaded")
+    else: st.metric("AI Brain", "MISSING", "Search Only")
 
 st.markdown("---")
 
-# --- MAIN CONTROLS ---
-tab1, tab2 = st.tabs(["🚀 SERVER CONTROL", "📊 USER STATISTICS"])
+tab1, tab2 = st.tabs(["🚀 SERVER CONTROL", "📊 DATA & STATISTICS"])
 
 with tab1:
     st.subheader("Process Management")
-    if is_running_global:
-        st.success("✅ **The Bot is currently ACTIVE.**")
-        st.info("To stop, close this tab.")
-    else:
-        st.warning("⚠️ **The Bot is currently STOPPED.**")
-        if st.button("▶️ ACTIVATE BOT SERVER", type="primary", use_container_width=True):
-            if hasattr(bot, 'stop_polling_flag'):
-                bot.stop_polling_flag = False
-            t = threading.Thread(target=start_bot_background, name="TPSC_Worker")
-            t.daemon = True
-            t.start()
-            st.rerun()
+    st.success("✅ **The Bot is ACTIVE (Headless Mode).**")
+    st.info("The bot runs automatically. To restart logic, click below.")
+    if st.button("🔄 Soft Restart UI"):
+        st.rerun()
 
 with tab2:
-    # DATA LOADING
+    if st.button("🔄 Refresh Analytics"): st.rerun()
     sheet = connect_to_sheet()
     if sheet:
         try:
@@ -342,9 +327,8 @@ with tab2:
             if data:
                 df = pd.DataFrame(data)
                 
-                # ---------------- SECTION A: USER LEADERBOARD ----------------
+                # --- LEADERBOARD ---
                 st.subheader("🏆 User Leaderboard")
-                
                 col_search, _ = st.columns([2, 1])
                 with col_search:
                     search_query = st.text_input("🔍 Search User", placeholder="Type username, Name, or ID...")
@@ -352,22 +336,20 @@ with tab2:
                 if "User ID" in df.columns:
                     # 1. Calc Stats
                     user_stats = df.groupby(["User ID", "Name", "Username"]).size().reset_index(name='Messages Sent')
-                    
                     if "Timestamp" in df.columns:
                         last_active = df.groupby("User ID")["Timestamp"].max().reset_index(name='Last Active')
                         user_stats = pd.merge(user_stats, last_active, on="User ID")
                     
-                    # 2. Filter Logic
+                    # 2. Filter
                     if search_query:
                         user_stats = user_stats[
-                            user_stats['Name'].str.contains(search_query, case=False, na=False) |
-                            user_stats['Username'].str.contains(search_query, case=False, na=False) |
+                            user_stats['Name'].astype(str).str.contains(search_query, case=False, na=False) |
+                            user_stats['Username'].astype(str).str.contains(search_query, case=False, na=False) |
                             user_stats['User ID'].astype(str).str.contains(search_query, case=False, na=False)
                         ]
-
                     user_stats = user_stats.sort_values(by="Messages Sent", ascending=False)
                     
-                    # 3. Render Table (Centered 'Messages Sent')
+                    # 3. RESTORED STYLING (Center Align)
                     styled_stats = user_stats.style.set_properties(
                         subset=['Messages Sent'], 
                         **{'text-align': 'center'}
@@ -378,54 +360,35 @@ with tab2:
                     
                     st.dataframe(
                         styled_stats, 
-                        use_container_width=True,
-                        column_config={
-                            "User ID": st.column_config.TextColumn("User ID"),
-                        }
+                        use_container_width=True, 
+                        column_config={"User ID": st.column_config.TextColumn("User ID")}
                     )
                 
                 st.markdown("---")
                 
-                # ---------------- SECTION B: RAW LOGS ----------------
-                col_x, col_y = st.columns([3, 1])
-                with col_x:
-                    st.subheader("📝 Message Logs")
-                with col_y:
-                    if st.button("🔄 Refresh Logs"):
-                        st.rerun()
-
-                # Filters for Logs
+                # --- RAW LOGS ---
+                st.subheader("📝 Message Logs")
                 col_f1, col_f2 = st.columns(2)
-                with col_f1:
-                    log_search = st.text_input("🔍 Search Content", placeholder="Search within messages/answers...")
+                with col_f1: log_search = st.text_input("🔍 Search Content", placeholder="Search messages...")
                 with col_f2:
                     if "Verdict" in df.columns:
                         unique_verdicts = df["Verdict"].unique().tolist()
                         verdict_filter = st.multiselect("⚖️ Filter by Verdict", unique_verdicts)
-                    else:
-                        verdict_filter = []
+                    else: verdict_filter = []
 
-                # Apply Filters
                 df_filtered = df.copy()
-                
                 if log_search:
                     df_filtered = df_filtered[
-                        df_filtered['Question'].str.contains(log_search, case=False, na=False) |
-                        df_filtered['Answer'].str.contains(log_search, case=False, na=False)
+                        df_filtered['Question'].astype(str).str.contains(log_search, case=False, na=False) |
+                        df_filtered['Answer'].astype(str).str.contains(log_search, case=False, na=False)
                     ]
-                
                 if verdict_filter:
                     df_filtered = df_filtered[df_filtered['Verdict'].isin(verdict_filter)]
-
-                # Sort Date
                 if "Timestamp" in df_filtered.columns:
                     df_filtered = df_filtered.sort_values(by="Timestamp", ascending=False)
 
                 st.dataframe(df_filtered, use_container_width=True, height=400)
-                
-            else:
-                st.info("Database is empty.")
-        except Exception as e:
-            st.error(f"Error reading database: {e}")
+            else: st.info("Database is empty.")
+        except Exception as e: st.error(f"Error: {e}")
     else:
         st.error("Cannot connect to Google Sheets.")
