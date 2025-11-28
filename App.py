@@ -10,7 +10,7 @@ import pandas as pd
 import threading
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
-from datetime import datetime
+from datetime import datetime, timedelta
 
 # 1. SETUP PAGE
 st.set_page_config(page_title="HODEAI Bot Server", page_icon="🤖", layout="wide")
@@ -38,7 +38,7 @@ def log_to_sheet(message, answer_text, verdict="ERROR"):
     try:
         sheet = connect_to_sheet()
         if sheet:
-            timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            timestamp = timestamp = (datetime.utcnow() + timedelta(hours=7)).strftime("%Y-%m-%d %H:%M:%S")
             user_id = str(message.from_user.id)
             username = f"@{message.from_user.username}" if message.from_user.username else "No Username"
             first_name = message.from_user.first_name
