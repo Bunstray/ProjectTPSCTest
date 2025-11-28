@@ -8,6 +8,7 @@ import re
 import os
 import pandas as pd
 import threading
+import time
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 from datetime import datetime, timedelta
@@ -15,9 +16,6 @@ from datetime import datetime, timedelta
 # 1. SETUP PAGE
 st.set_page_config(page_title="HODEAI Bot Server", page_icon="🤖", layout="wide")
 st.title("🤖 HODEAI Bot Server")
-
-if 'bot_running' not in st.session_state:
-    st.session_state.bot_running = False
 
 # --- GOOGLE SHEETS SETUP ---
 SHEET_NAME = "TPSC_Bot_Logs"
@@ -34,33 +32,28 @@ def connect_to_sheet():
         return None
 
 def log_to_sheet(message, answer_text, verdict="ERROR"):
-    """Writes to Google Sheet with Verdict Column (GMT+7)"""
     try:
         sheet = connect_to_sheet()
         if sheet:
-            # GMT+7 Logic
             timestamp = (datetime.utcnow() + timedelta(hours=7)).strftime("%Y-%m-%d %H:%M:%S")
-            
             user_id = str(message.from_user.id)
             username = f"@{message.from_user.username}" if message.from_user.username else "No Username"
             first_name = message.from_user.first_name
             question = message.text
-            
             sheet.append_row([timestamp, user_id, username, first_name, question, answer_text, verdict])
             print(f"✅ Logged: {verdict}")
     except Exception as e:
         print(f"❌ Logging Failed: {e}")
 
-# 2. LOAD SECRETS
+# 2. LOAD SECRETS & INITIALIZE BOT GLOBALLY
 try:
     gemini_key = st.secrets["GEMINI_API_KEY"]
     serper_key = st.secrets["SERPER_API_KEY"]
     bot_token = st.secrets["TELEGRAM_BOT_TOKEN"]
     genai.configure(api_key=gemini_key)
     
-    if 'bot_instance' not in st.session_state:
-        st.session_state.bot_instance = telebot.TeleBot(bot_token)
-    bot = st.session_state.bot_instance
+    # Initialize Bot Globally so the Thread can see it
+    bot = telebot.TeleBot(bot_token)
 except Exception as e:
     st.error(f"Secrets Error: {e}")
     st.stop()
@@ -110,9 +103,9 @@ def extract_verdict(text):
     return "UNKNOWN"
 
 # 5. BOT HANDLERS
+# Only register handlers if they don't exist yet
 if not bot.message_handlers:
     
-    # HANDLER 1: COMMANDS
     @bot.message_handler(commands=['start', 'help'])
     def send_welcome(message):
         welcome_text = """
@@ -121,7 +114,6 @@ if not bot.message_handlers:
         """
         bot.reply_to(message, welcome_text, parse_mode="Markdown")
 
-    # HANDLER 2: TEXT MESSAGES
     @bot.message_handler(func=lambda message: True and not message.text.startswith('/'))
     def handle_message(message):
         user_text = message.text
@@ -213,8 +205,8 @@ if not bot.message_handlers:
 # 5.1 BACKGROUND THREAD FUNCTION
 def start_bot_background():
     try:
-        if 'bot_instance' in st.session_state:
-            st.session_state.bot_instance.infinity_polling(timeout=10, long_polling_timeout=5)
+        # ACCESS GLOBAL BOT DIRECTLY. DO NOT USE SESSION STATE.
+        bot.infinity_polling(timeout=10, long_polling_timeout=5)
     except Exception as e:
         print(f"Bot Polling Error: {e}")
 
@@ -224,17 +216,17 @@ col1, col2 = st.columns([1, 2])
 with col1:
     st.subheader("⚙️ Control Panel")
     
-    # --- GLOBAL STATUS CHECK (FIXED) ---
-    # Scans all running threads for the specific name
+    # --- GLOBAL STATUS CHECK ---
+    # Scans for the specific thread name
     is_running_global = False
     for thread in threading.enumerate():
-        if thread.name == "TPSC_Background_Worker":
+        if thread.name == "TPSC_Worker":
             is_running_global = True
             break
             
     if is_running_global:
         st.success("🟢 **STATUS: ONLINE**")
-        st.caption("Bot thread found running on server.")
+        st.caption("Bot thread found running.")
     else:
         st.error("🔴 **STATUS: OFFLINE**")
         st.caption("Bot thread not found.")
@@ -244,8 +236,8 @@ with col1:
     # --- BUTTON LOGIC ---
     if not is_running_global:
         if st.button("🚀 START BOT POLLING", type="primary"):
-            # Name the thread so we can find it globally later
-            t = threading.Thread(target=start_bot_background, name="TPSC_Background_Worker")
+            # Start thread with a specific name so we can find it
+            t = threading.Thread(target=start_bot_background, name="TPSC_Worker")
             t.daemon = True
             t.start()
             st.rerun()
