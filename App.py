@@ -17,6 +17,11 @@ from datetime import datetime, timedelta
 st.set_page_config(page_title="HODEAI Bot Server", page_icon="🤖", layout="wide")
 st.title("🤖 HODEAI Bot Server")
 
+# --- GLOBAL VARIABLES ---
+# We use st.session_state to ensure we don't lose the bot instance during refresh
+if 'bot_instance' not in st.session_state:
+    st.session_state.bot_instance = None
+
 # --- GOOGLE SHEETS SETUP ---
 SHEET_NAME = "TPSC_Bot_Logs"
 
@@ -52,9 +57,10 @@ try:
     bot_token = st.secrets["TELEGRAM_BOT_TOKEN"]
     genai.configure(api_key=gemini_key)
     
-    if 'bot_instance' not in st.session_state:
-        # threaded=False is important for manual thread control
+    # Initialize Bot ONLY if it doesn't exist
+    if st.session_state.bot_instance is None:
         st.session_state.bot_instance = telebot.TeleBot(bot_token, threaded=False)
+    
     bot = st.session_state.bot_instance
 except Exception as e:
     st.error(f"Secrets Error: {e}")
@@ -117,6 +123,17 @@ if not bot.message_handlers:
 
     @bot.message_handler(func=lambda message: True and not message.text.startswith('/'))
     def handle_message(message):
+        # KILL SWITCH: Check if we are supposed to be running
+        # If the Global Thread is dead, ignore the message.
+        is_thread_alive = False
+        for t in threading.enumerate():
+            if t.name == "TPSC_Worker":
+                is_thread_alive = True
+                break
+        
+        if not is_thread_alive:
+            return # IGNORE MESSAGE if bot is supposed to be offline
+
         user_text = message.text
         chat_id = message.chat.id
         
@@ -206,9 +223,9 @@ if not bot.message_handlers:
 # 5.1 BACKGROUND THREAD
 def start_bot_background():
     try:
-        if 'bot_instance' in st.session_state:
-            # interval=2 makes it check slower, easier to stop
-            st.session_state.bot_instance.infinity_polling(timeout=10, long_polling_timeout=5)
+        # restart_on_change=False IS THE KEY FIX. 
+        # It prevents the bot from resurrecting when we stop it.
+        st.session_state.bot_instance.infinity_polling(timeout=1, long_polling_timeout=1, restart_on_change=False)
     except Exception as e:
         print(f"Bot Error: {e}")
 
@@ -219,14 +236,10 @@ with col1:
     st.subheader("⚙️ Control Panel")
     
     # --- GLOBAL THREAD CHECK ---
-    target_thread = None
     is_running_global = False
-    
-    # Find the specific worker thread
     for thread in threading.enumerate():
         if thread.name == "TPSC_Worker":
             is_running_global = True
-            target_thread = thread
             break
             
     if is_running_global:
@@ -241,34 +254,27 @@ with col1:
     # --- BUTTON LOGIC ---
     if not is_running_global:
         if st.button("🚀 START BOT POLLING", type="primary"):
-            # Reset stop flag just in case
+            # Ensure no lingering stop flags
             if hasattr(bot, 'stop_polling_flag'):
                 bot.stop_polling_flag = False
-                
+            
             t = threading.Thread(target=start_bot_background, name="TPSC_Worker")
             t.daemon = True
             t.start()
             st.rerun()
     else:
-        if st.button("🛑 STOP BOT (Wait 3s)"):
-            with st.spinner("Stopping bot... please wait..."):
-                # 1. Send Stop Signal
-                bot.stop_polling()
-                
-                # 2. FORCE WAIT until thread actually disappears
-                # We loop 10 times (5 seconds max) to verify it died
-                for _ in range(10):
-                    time.sleep(0.5)
-                    # Check if thread is still in the list
-                    still_alive = False
-                    for t in threading.enumerate():
-                        if t.name == "TPSC_Worker":
-                            still_alive = True
-                    if not still_alive:
-                        break # It died! Exit loop.
-                
-                # 3. Refresh UI
-                st.rerun()
+        if st.button("🛑 STOP BOT"):
+            # 1. STOP THE BOT
+            bot.stop_polling()
+            
+            # 2. UI FEEDBACK
+            st.warning("Stopping... Please wait 2 seconds.")
+            
+            # 3. FORCE WAIT (Actually wait for the thread to close)
+            time.sleep(2)
+            
+            # 4. REFRESH
+            st.rerun()
 
 with col2:
     st.subheader("📜 Live Google Sheet Logs")
