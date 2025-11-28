@@ -8,23 +8,25 @@ import re
 import os
 import csv
 import pandas as pd
+import threading # NEW: To run bot in background
 from datetime import datetime
 
 # 1. SETUP PAGE
 st.set_page_config(page_title="TPSC Bot Server", page_icon="🤖", layout="wide")
 st.title("🤖 TPSC Bot Server & Full Logs")
 
+# --- SESSION STATE SETUP (To fix duplication) ---
+if 'bot_running' not in st.session_state:
+    st.session_state.bot_running = False
+
 # --- LOGGING SETUP ---
 LOG_FILE = "bot_logs.csv"
-
-# Initialize CSV with "Question" and "Answer" columns
 if not os.path.exists(LOG_FILE):
     with open(LOG_FILE, mode='w', newline='', encoding='utf-8') as file:
         writer = csv.writer(file)
         writer.writerow(["Timestamp", "User ID", "Username", "Name", "Question", "Answer"])
 
 def log_interaction(message, answer_text):
-    """Saves User Question AND Bot Answer to CSV"""
     try:
         user_id = message.from_user.id
         username = f"@{message.from_user.username}" if message.from_user.username else "No Username"
@@ -43,9 +45,11 @@ try:
     gemini_key = st.secrets["GEMINI_API_KEY"]
     serper_key = st.secrets["SERPER_API_KEY"]
     bot_token = st.secrets["TELEGRAM_BOT_TOKEN"]
-    
     genai.configure(api_key=gemini_key)
-    bot = telebot.TeleBot(bot_token)
+    # Ensure bot is initialized only once in the global scope logic
+    if 'bot_instance' not in st.session_state:
+        st.session_state.bot_instance = telebot.TeleBot(bot_token)
+    bot = st.session_state.bot_instance
 except Exception as e:
     st.error(f"Secrets Error: {e}")
     st.stop()
@@ -88,6 +92,7 @@ def google_search(query):
     except: return []
 
 # 5. TELEGRAM BOT LOGIC
+# We define this ONCE. The handler is attached to the 'bot' object.
 @bot.message_handler(func=lambda message: True)
 def handle_message(message):
     user_text = message.text
@@ -97,22 +102,18 @@ def handle_message(message):
     temp_msg = bot.reply_to(message, "🕵️ *TPSC sedang menginvestigasi...*", parse_mode="Markdown")
     
     try:
-        # A. SEARCH
         results = google_search(f"{user_text} berita validasi")
-        
         if not results:
             error_msg = "❌ Tidak ditemukan berita relevan di Google."
             bot.edit_message_text(error_msg, chat_id, temp_msg.message_id)
-            log_interaction(message, error_msg) # Log the failure
+            log_interaction(message, error_msg)
             return
 
-        # B. LOCAL AI FILTERING
         evidence_for_gemini = ""
         for doc in results:
             full_text = f"{doc.get('title')} {doc.get('snippet')}"
             link = doc.get('link')
             
-            # Predict
             hoax_score = 0.5 
             if model:
                 try:
@@ -131,7 +132,6 @@ def handle_message(message):
             
             evidence_for_gemini += f"{tag} {doc.get('title')} (Link: {link})\n"
 
-        # C. GEMINI REASONING
         prompt = f"""
         Peran: Kamu adalah TPSC-Bot.
         KLAIM: "{user_text}"
@@ -145,7 +145,7 @@ def handle_message(message):
            - 0-49%: 🟥🟥🟥⬜⬜ (Danger)
         
         OUTPUT FORMAT (Telegram Markdown):
-        *HASIL CEK FAKTA*
+        *LAPORAN TPSC HYBRID*
         ------------------------------
         📊 *Status:* [FAKTA / HOAKS / TIDAK JELAS]
         
@@ -155,22 +155,16 @@ def handle_message(message):
         [Jelaskan kesimpulan dalam 2 kalimat]
         
         *🔗 Sumber:*
-        [List 2 hingga 3 link terbaik]
+        [List 2 link terbaik]
         
-        _Powered by CekFaktaTPSC_
+        _Powered by TPSC_
         """
-        
         model_gemini = genai.GenerativeModel('gemini-2.0-flash')
         response = model_gemini.generate_content(prompt)
         final_msg = response.text
 
-        # D. SEND & LOG
         bot.delete_message(chat_id, temp_msg.message_id) 
-        
-        # 1. Log the full conversation to CSV
         log_interaction(message, final_msg)
-        
-        # 2. Send to user
         try:
             bot.send_message(chat_id, final_msg, parse_mode="Markdown")
         except:
@@ -182,33 +176,51 @@ def handle_message(message):
         log_interaction(message, error_text)
 
 
-# 6. DASHBOARD
+# --- BACKGROUND THREAD FUNCTION ---
+def start_bot_background():
+    try:
+        bot.infinity_polling()
+    except Exception as e:
+        print(f"Bot Error: {e}")
+
+# 6. DASHBOARD & CONTROLS
 col1, col2 = st.columns([1, 2])
 
 with col1:
     st.subheader("⚙️ Control Panel")
-    if st.button("🚀 START BOT POLLING"):
-        st.success("Bot is running... Go to Telegram!")
-        bot.infinity_polling()
+    
+    # UI Logic: Only show "Start" if not running
+    if not st.session_state.bot_running:
+        if st.button("🚀 START BOT POLLING"):
+            # Start the thread
+            t = threading.Thread(target=start_bot_background)
+            t.daemon = True # Kills thread if app closes
+            t.start()
+            
+            # Update state so we don't click it again
+            st.session_state.bot_running = True
+            st.rerun() # Refresh page to update UI
+    else:
+        st.success("✅ Bot is Running in Background")
+        st.info("You can now refresh the logs without stopping the bot.")
 
 with col2:
     st.subheader("📜 Q&A Logs")
+    
+    # Simple Refresh Button
     if st.button("🔄 Refresh Table"):
-        if os.path.exists(LOG_FILE):
-            try:
-                df = pd.read_csv(LOG_FILE)
-                # Sort newest first
-                df = df.sort_values(by="Timestamp", ascending=False)
-                st.dataframe(df, height=400)
-            except:
-                st.error("Log file is corrupted. Please delete bot_logs.csv")
-        else:
-            st.warning("No logs found yet.")
+        st.rerun()
             
-    # Load table on start
+    # Always load table if file exists
     if os.path.exists(LOG_FILE):
         try:
             df = pd.read_csv(LOG_FILE)
-            df = df.sort_values(by="Timestamp", ascending=False)
-            st.dataframe(df, height=400)
-        except: pass
+            if not df.empty:
+                df = df.sort_values(by="Timestamp", ascending=False)
+                st.dataframe(df, height=400)
+            else:
+                st.info("Log file exists but is empty.")
+        except Exception as e:
+            st.error(f"Error reading logs: {e}")
+    else:
+        st.warning("No logs found yet. Start the bot and ask a question!")
