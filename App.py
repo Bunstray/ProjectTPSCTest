@@ -255,7 +255,7 @@ for thread in threading.enumerate():
         break
 
 # --- HEADER ---
-st.title("🎛️ HODEAI Control Panel")
+st.title("HODEAI Control Panel")
 st.caption(f"Server Time: {(datetime.utcnow() + timedelta(hours=7)).strftime('%H:%M:%S (GMT+7)')}")
 
 # --- METRICS ROW ---
