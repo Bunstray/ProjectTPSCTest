@@ -286,7 +286,6 @@ tab1, tab2 = st.tabs(["🚀 SERVER CONTROL", "📊 USER STATISTICS"])
 
 with tab1:
     st.subheader("Process Management")
-    
     if is_running_global:
         st.success("✅ **The Bot is currently ACTIVE.**")
         st.info("To stop, close this tab.")
@@ -301,10 +300,7 @@ with tab1:
             st.rerun()
 
 with tab2:
-    # REFRESH DATA
-    if st.button("🔄 Refresh Analytics"):
-        st.rerun()
-        
+    # DATA LOADING
     sheet = connect_to_sheet()
     if sheet:
         try:
@@ -312,36 +308,86 @@ with tab2:
             if data:
                 df = pd.DataFrame(data)
                 
-                # --- NEW: USER STATS CALCULATION ---
+                # ---------------- SECTION A: USER LEADERBOARD ----------------
+                st.subheader("🏆 User Leaderboard")
+                
+                # Search Bar
+                search_query = st.text_input("🔍 Search User", placeholder="Type username, Name, or ID...")
+                
                 if "User ID" in df.columns:
-                    st.subheader("🏆 Top Users")
+                    # 1. Calc Stats
+                    user_stats = df.groupby(["User ID", "Name", "Username"]).size().reset_index(name='Messages Sent')
                     
-                    # 1. Group by User
-                    user_stats = df.groupby(["User ID", "Name", "Username"]).size().reset_index(name='Total Chats')
-                    
-                    # 2. Get Last Active time
                     if "Timestamp" in df.columns:
                         last_active = df.groupby("User ID")["Timestamp"].max().reset_index(name='Last Active')
                         user_stats = pd.merge(user_stats, last_active, on="User ID")
                     
-                    # 3. Sort by most active
-                    user_stats = user_stats.sort_values(by="Total Chats", ascending=False)
+                    # 2. Filter Logic
+                    if search_query:
+                        user_stats = user_stats[
+                            user_stats['Name'].str.contains(search_query, case=False, na=False) |
+                            user_stats['Username'].str.contains(search_query, case=False, na=False) |
+                            user_stats['User ID'].astype(str).str.contains(search_query, case=False, na=False)
+                        ]
+
+                    user_stats = user_stats.sort_values(by="Messages Sent", ascending=False)
                     
-                    # 4. DISPLAY AS NORMAL INTEGER (Messages Sent)
-                    st.dataframe(
-                        user_stats, 
-                        use_container_width=True,
-                        column_config={
-                            "User ID": st.column_config.TextColumn("User ID"),
-                            "Total Chats": st.column_config.NumberColumn("Messages Sent", format="%d")
-                        }
+                    # 3. Render Table (Centered 'Messages Sent')
+                    # We use pandas Styler to force alignment
+                    styled_stats = user_stats.style.set_properties(
+                        subset=['Messages Sent'], 
+                        **{'text-align': 'center'}
+                    ).set_table_styles(
+                        [{'selector': 'th', 'props': [('text-align', 'center')]}]
                     )
                     
-                    st.markdown("---")
-                    st.subheader("📝 Full Raw Logs")
-                    st.dataframe(df.sort_index(ascending=False), use_container_width=True, height=300)
-                else:
-                    st.warning("Column 'User ID' not found in Google Sheet.")
+                    st.dataframe(
+                        styled_stats, 
+                        use_container_width=True,
+                        column_config={
+                            "Messages Sent": st.column_config.NumberColumn("Messages Sent", format="%d")
+                        }
+                    )
+                
+                st.markdown("---")
+                
+                # ---------------- SECTION B: RAW LOGS ----------------
+                col_x, col_y = st.columns([3, 1])
+                with col_x:
+                    st.subheader("📝 Message Logs")
+                with col_y:
+                    if st.button("🔄 Refresh Logs"):
+                        st.rerun()
+
+                # Filters for Logs
+                col_f1, col_f2 = st.columns(2)
+                with col_f1:
+                    log_search = st.text_input("🔍 Search Content", placeholder="Search within messages/answers...")
+                with col_f2:
+                    if "Verdict" in df.columns:
+                        unique_verdicts = df["Verdict"].unique().tolist()
+                        verdict_filter = st.multiselect("⚖️ Filter by Verdict", unique_verdicts)
+                    else:
+                        verdict_filter = []
+
+                # Apply Filters
+                df_filtered = df.copy()
+                
+                if log_search:
+                    df_filtered = df_filtered[
+                        df_filtered['Question'].str.contains(log_search, case=False, na=False) |
+                        df_filtered['Answer'].str.contains(log_search, case=False, na=False)
+                    ]
+                
+                if verdict_filter:
+                    df_filtered = df_filtered[df_filtered['Verdict'].isin(verdict_filter)]
+
+                # Sort Date
+                if "Timestamp" in df_filtered.columns:
+                    df_filtered = df_filtered.sort_values(by="Timestamp", ascending=False)
+
+                st.dataframe(df_filtered, use_container_width=True, height=400)
+                
             else:
                 st.info("Database is empty.")
         except Exception as e:
