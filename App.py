@@ -34,11 +34,11 @@ def connect_to_sheet():
         return None
 
 def log_to_sheet(message, answer_text, verdict="ERROR"):
-    """Writes to Google Sheet with Verdict Column"""
+    """Writes to Google Sheet with Verdict Column (GMT+7)"""
     try:
         sheet = connect_to_sheet()
         if sheet:
-            # FIXED: Syntax error removed here (was timestamp = timestamp =)
+            # GMT+7 Logic
             timestamp = (datetime.utcnow() + timedelta(hours=7)).strftime("%Y-%m-%d %H:%M:%S")
             
             user_id = str(message.from_user.id)
@@ -46,7 +46,6 @@ def log_to_sheet(message, answer_text, verdict="ERROR"):
             first_name = message.from_user.first_name
             question = message.text
             
-            # Append Row: [Timestamp, ID, User, Name, Q, A, Verdict]
             sheet.append_row([timestamp, user_id, username, first_name, question, answer_text, verdict])
             print(f"✅ Logged: {verdict}")
     except Exception as e:
@@ -102,12 +101,9 @@ def google_search(query):
         return response.json().get("organic", [])
     except: return []
 
-# HELPER: Extract Verdict from Text
 def extract_verdict(text):
-    # Regex to find text after "*Status:*" or "Status:"
     match = re.search(r'\*?Status:\*?\s*(.*)', text, re.IGNORECASE)
     if match:
-        # Get the text, remove brackets [] and extra spaces
         raw_verdict = match.group(1).strip()
         clean_verdict = re.sub(r'[\[\]]', '', raw_verdict)
         return clean_verdict
@@ -116,18 +112,16 @@ def extract_verdict(text):
 # 5. BOT HANDLERS
 if not bot.message_handlers:
     
-    # --- HANDLER 1: COMMANDS (Free & Fast) ---
+    # HANDLER 1: COMMANDS
     @bot.message_handler(commands=['start', 'help'])
     def send_welcome(message):
         welcome_text = """
         👋 *Halo! Saya HODEAI Bot.*
-        
-        Saya adalah asisten AI Cek Fakta Hybrid.
-        Kirimkan judul berita, rumor, atau pesan forward WA ke sini.
+        Kirimkan judul berita atau rumor untuk cek fakta.
         """
         bot.reply_to(message, welcome_text, parse_mode="Markdown")
 
-    # --- HANDLER 2: TEXT MESSAGES ---
+    # HANDLER 2: TEXT MESSAGES
     @bot.message_handler(func=lambda message: True and not message.text.startswith('/'))
     def handle_message(message):
         user_text = message.text
@@ -184,19 +178,17 @@ if not bot.message_handlers:
             [Jelaskan kesimpulan dalam 2 kalimat]
             
             *🔗 Sumber:*
-            [List maximal 2 link terbaik]
+            [List 2 link terbaik]
             
             _Powered by HODE AI_
             """
             
-            # RETRY LOGIC FOR 429 ERRORS
             try:
                 model_gemini = genai.GenerativeModel('gemini-2.0-flash')
                 response = model_gemini.generate_content(prompt)
                 final_msg = response.text
             except Exception as e:
                 if "429" in str(e) or "exhausted" in str(e):
-                    # Fallback to stable model if flash is busy
                     model_gemini = genai.GenerativeModel('gemini-1.5-flash')
                     response = model_gemini.generate_content(prompt)
                     final_msg = response.text
@@ -221,8 +213,8 @@ if not bot.message_handlers:
 # 5.1 BACKGROUND THREAD FUNCTION
 def start_bot_background():
     try:
-        # Infinity polling keeps the bot running forever
-        bot.infinity_polling(timeout=10, long_polling_timeout=5)
+        if 'bot_instance' in st.session_state:
+            st.session_state.bot_instance.infinity_polling(timeout=10, long_polling_timeout=5)
     except Exception as e:
         print(f"Bot Polling Error: {e}")
 
@@ -232,27 +224,33 @@ col1, col2 = st.columns([1, 2])
 with col1:
     st.subheader("⚙️ Control Panel")
     
-    # --- STATUS INDICATOR ---
-    if st.session_state.bot_running:
+    # --- GLOBAL STATUS CHECK (FIXED) ---
+    # Scans all running threads for the specific name
+    is_running_global = False
+    for thread in threading.enumerate():
+        if thread.name == "TPSC_Background_Worker":
+            is_running_global = True
+            break
+            
+    if is_running_global:
         st.success("🟢 **STATUS: ONLINE**")
-        st.caption("Bot is active and listening to Telegram.")
+        st.caption("Bot thread found running on server.")
     else:
         st.error("🔴 **STATUS: OFFLINE**")
-        st.caption("Bot is sleeping. Click start to activate.")
+        st.caption("Bot thread not found.")
         
     st.markdown("---")
 
     # --- BUTTON LOGIC ---
-    if not st.session_state.bot_running:
+    if not is_running_global:
         if st.button("🚀 START BOT POLLING", type="primary"):
-            t = threading.Thread(target=start_bot_background)
+            # Name the thread so we can find it globally later
+            t = threading.Thread(target=start_bot_background, name="TPSC_Background_Worker")
             t.daemon = True
             t.start()
-            st.session_state.bot_running = True
             st.rerun()
     else:
         if st.button("🛑 STOP BOT (Reload Page)"):
-            st.session_state.bot_running = False
             st.rerun()
 
 with col2:
@@ -265,13 +263,12 @@ with col2:
                 data = sheet.get_all_records()
                 if data:
                     df = pd.DataFrame(data)
-                    # Convert Timestamp for Sorting
                     if "Timestamp" in df.columns:
                         df = df.sort_values(by="Timestamp", ascending=False)
                     st.dataframe(df, height=400)
                 else:
                     st.info("Sheet is connected but empty.")
             except:
-                st.warning("Could not read data. Did you add the 'Verdict' header in Column G?")
+                st.warning("Could not read data. Check headers.")
         else:
             st.error("❌ Connection Failed.")
