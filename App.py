@@ -16,7 +16,7 @@ from datetime import datetime, timedelta
 # 1. SETUP PAGE CONFIGURATION
 st.set_page_config(
     page_title="HODEAI Server", 
-    page_icon="🎛️", 
+    page_icon="🔒", 
     layout="wide",
     initial_sidebar_state="collapsed"
 )
@@ -32,6 +32,44 @@ st.markdown("""
     }
 </style>
 """, unsafe_allow_html=True)
+
+# ==========================================
+# 🔐 AUTHENTICATION SYSTEM
+# ==========================================
+def check_password():
+    """Returns `True` if the user had the correct password."""
+    
+    def password_entered():
+        """Checks whether a password entered by the user is correct."""
+        if st.session_state["password"] == st.secrets["ADMIN_PASSWORD"]:
+            st.session_state["password_correct"] = True
+            del st.session_state["password"]  # Don't store the password
+        else:
+            st.session_state["password_correct"] = False
+
+    if "password_correct" not in st.session_state:
+        # First run, show input
+        st.text_input(
+            "🔑 Enter Admin Password", type="password", on_change=password_entered, key="password"
+        )
+        return False
+    elif not st.session_state["password_correct"]:
+        # Password incorrect, show input + error
+        st.text_input(
+            "🔑 Enter Admin Password", type="password", on_change=password_entered, key="password"
+        )
+        st.error("😕 Password incorrect")
+        return False
+    else:
+        # Password correct
+        return True
+
+if not check_password():
+    st.stop()  # STOP EXECUTION HERE if not logged in
+
+# ==========================================
+# 🚀 MAIN APP LOGIC (Only runs if logged in)
+# ==========================================
 
 # --- GLOBAL VARIABLES ---
 if 'bot_instance' not in st.session_state:
@@ -278,13 +316,13 @@ with m3:
 st.markdown("---")
 
 # --- MAIN CONTROLS ---
-tab1, tab2 = st.tabs(["🚀 SERVER CONTROL", "📊 DATA & STATISTICS"])
+tab1, tab2 = st.tabs(["🚀 SERVER CONTROL", "📊 USER STATISTICS"])
 
 with tab1:
     st.subheader("Process Management")
     if is_running_global:
         st.success("✅ **The Bot is currently ACTIVE.**")
-        st.info("To stop, terminate.")
+        st.info("To stop, close this tab.")
     else:
         st.warning("⚠️ **The Bot is currently STOPPED.**")
         if st.button("▶️ ACTIVATE BOT SERVER", type="primary", use_container_width=True):
@@ -330,7 +368,6 @@ with tab2:
                     user_stats = user_stats.sort_values(by="Messages Sent", ascending=False)
                     
                     # 3. Render Table (Centered 'Messages Sent')
-                    # We use pandas Styler to force alignment
                     styled_stats = user_stats.style.set_properties(
                         subset=['Messages Sent'], 
                         **{'text-align': 'center'}
@@ -339,13 +376,11 @@ with tab2:
                         {'selector': 'td', 'props': 'text-align: center;'}
                     ], overwrite=False)
                     
-                    # We remove the NumberColumn config here because it forces Right Align
                     st.dataframe(
                         styled_stats, 
                         use_container_width=True,
                         column_config={
                             "User ID": st.column_config.TextColumn("User ID"),
-                            # "Messages Sent": st.column_config.NumberColumn("Messages Sent", format="%d") <- REMOVED to allow CSS Center
                         }
                     )
                 
