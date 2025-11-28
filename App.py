@@ -184,7 +184,7 @@ if not bot.message_handlers:
             [Jelaskan kesimpulan dalam 2 kalimat]
             
             *🔗 Sumber:*
-            [List 2 link terbaik]
+            [List maximal 2 link terbaik]
             
             _Powered by HODE AI_
             """
