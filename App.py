@@ -284,7 +284,7 @@ with tab1:
     st.subheader("Process Management")
     if is_running_global:
         st.success("✅ **The Bot is currently ACTIVE.**")
-        st.info("To stop, close this tab.")
+        st.info("To stop, terminate.")
     else:
         st.warning("⚠️ **The Bot is currently STOPPED.**")
         if st.button("▶️ ACTIVATE BOT SERVER", type="primary", use_container_width=True):
