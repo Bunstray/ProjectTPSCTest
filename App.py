@@ -282,14 +282,14 @@ with m3:
 st.markdown("---")
 
 # --- MAIN CONTROLS ---
-tab1, tab2 = st.tabs(["🚀 SERVER CONTROL", "📊 DATA LOGS"])
+tab1, tab2 = st.tabs([" SERVER CONTROL", " DATA LOGS"])
 
 with tab1:
     st.subheader("Process Management")
     
     if is_running_global:
         st.success("✅ **The Bot is currently ACTIVE running in the background.**")
-        st.info("To stop the bot, please close this browser tab or kill the terminal process.")
+        st.info("To stop the bot, please kill the terminal process.")
     else:
         st.warning("⚠️ **The Bot is currently STOPPED.**")
         if st.button("▶️ ACTIVATE BOT SERVER", type="primary", use_container_width=True):
@@ -304,7 +304,7 @@ with tab1:
 with tab2:
     col_a, col_b = st.columns([4,1])
     with col_a:
-        st.subheader("Live Interaction Logs")
+        st.subheader("Interaction Logs")
     with col_b:
         if st.button("🔄 Refresh Data"):
             st.rerun()
