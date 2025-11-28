@@ -225,6 +225,14 @@ if not bot.message_handlers:
             err_msg = f"⚠️ System Error: {str(e)}"
             bot.send_message(chat_id, err_msg)
             log_to_sheet(message, err_msg, "SYSTEM ERROR")
+        
+# 5.1 BACKGROUND BOT START FUNCTION
+def start_bot_background():
+    try:
+        # Infinity polling keeps the bot running forever
+        bot.infinity_polling(timeout=10, long_polling_timeout=5)
+    except Exception as e:
+        print(f"Bot Polling Error: {e}")
 
 # 6. DASHBOARD
 col1, col2 = st.columns([1, 2])
