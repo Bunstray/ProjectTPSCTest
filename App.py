@@ -133,32 +133,30 @@ def extract_verdict(text):
     return "UNKNOWN"
 
 def create_dynamic_bar(score):
-    """
-    Generates a 10-block progress bar based on score (0-100).
-    Colors: Red (<50%), Yellow (50-79%), Green (>=80%).
-    """
+    # Ensure score is an integer between 0-100
     try:
         score = int(score)
     except:
         score = 0
-        
-    # Ensure score is within bounds
     score = max(0, min(100, score))
     
-    # Calculate number of filled blocks (out of 10)
-    filled_count = round(score / 10)
+    # Calculate blocks (1 block = 10%)
+    # We use round() so 75% becomes 8 blocks, 74% becomes 7 blocks
+    filled_count = int(round(score / 10))
     empty_count = 10 - filled_count
     
-    # Determine Color based on Confidence Score
-    if score >= 80:
-        fill_char = "🟩" # High Confidence
+    # Determine Color
+    # > 75% = Green, 50-75% = Yellow, < 50% = Red
+    if score > 75:
+        fill_char = "🟩"
     elif score >= 50:
-        fill_char = "🟨" # Medium Confidence
+        fill_char = "🟨"
     else:
-        fill_char = "🟥" # Low Confidence
+        fill_char = "🟥"
         
     empty_char = "⬜"
     
+    # Construct the string
     bar = (fill_char * filled_count) + (empty_char * empty_count)
     return bar
 
@@ -175,13 +173,12 @@ if not bot.message_handlers:
 
     @bot.message_handler(func=lambda message: True and not message.text.startswith('/'))
     def handle_message(message):
-        # Allow bot to work even if UI is locked (UptimeRobot Check)
+        # UptimeRobot Check
         is_thread_alive = False
         for t in threading.enumerate():
             if t.name == "TPSC_Worker":
                 is_thread_alive = True
                 break
-        
         if not is_thread_alive: return 
 
         user_text = message.text
@@ -202,7 +199,8 @@ if not bot.message_handlers:
             for doc in results:
                 full_text = f"{doc.get('title')} {doc.get('snippet')}"
                 link = doc.get('link')
-                # ... (Model logic remains the same) ...
+                
+                # --- Quick Hoax Check Logic ---
                 hoax_score = 0.5 
                 if model:
                     try:
@@ -220,21 +218,21 @@ if not bot.message_handlers:
                 else: tag = "✅ [TRUSTED]"
                 evidence_for_gemini += f"{tag} {doc.get('title')} (Link: {link})\n"
 
-            # --- UPDATED PROMPT ---
-            # We ask Gemini to leave a placeholder {{BAR}} or just output the score clearly
+            # --- PROMPT ---
+            # We tell Gemini specifically NOT to draw the bar, just give the score.
             prompt = f"""
             Peran: HODEAI-Bot. Analisis berita ini: "{user_text}". 
             Bukti: {evidence_for_gemini}
             
             INSTRUKSI:
             1. Tentukan Status (FAKTA / HOAKS / TIDAK JELAS).
-            2. Tentukan Confidence Score (0-100) berdasarkan konsistensi bukti.
+            2. Berikan Confidence Score (0-100).
             
             OUTPUT FORMAT (Telegram Markdown):
             *HASIL CEK FAKTA*
             ------------------------------
             📊 *Status:* [STATUS]
-            {{BAR}} *Confidence:* [SCORE]%
+            Confidence: [SCORE]%
             
             *📋 Analisis AI:*
             [Jelaskan kesimpulan dalam 2 kalimat]
@@ -250,27 +248,35 @@ if not bot.message_handlers:
                 response = model_gemini.generate_content(prompt)
                 final_msg = response.text
             except Exception as e:
-                # Fallback model
                 model_gemini = genai.GenerativeModel('gemini-1.5-flash')
                 response = model_gemini.generate_content(prompt)
                 final_msg = response.text
 
-            # --- PYTHON INJECTION FOR PERFECT BAR ---
-            # 1. Find the score using Regex
-            score_match = re.search(r'Confidence:\*?\s*(\d+)', final_msg)
-            if score_match:
-                score_val = int(score_match.group(1))
-                # 2. Generate the 10-block bar using Python
+            # --- FORCE BAR INJECTION ---
+            # This logic ignores what Gemini drew and forces the 10-block bar
+            
+            # 1. Regex to find any line saying "Confidence: X%" (ignoring whatever symbols appear before it)
+            # The regex looks for: (Any characters)(Confidence)(any separator)(digits)(%)
+            pattern = r"(.*)(Confidence:?\s*)(\d+)(%?)"
+            
+            match = re.search(pattern, final_msg, re.IGNORECASE)
+            
+            if match:
+                # Extract the score number (Group 3 in regex)
+                score_val = int(match.group(3))
+                
+                # Create the perfect 10-block bar
                 visual_bar = create_dynamic_bar(score_val)
-                # 3. Replace the placeholder or inject before "Confidence"
-                if "{{BAR}}" in final_msg:
-                    final_msg = final_msg.replace("{{BAR}}", visual_bar)
-                else:
-                    # Fallback injection if Gemini messed up the placeholder
-                    final_msg = re.sub(r'(\*?Confidence:\*?)', f"{visual_bar} \\1", final_msg)
+                
+                # Rebuild the line entirely
+                # New line = "🟩🟩🟩🟩🟩⬜⬜⬜⬜⬜ Confidence: 50%"
+                new_line = f"{visual_bar} *Confidence:* {score_val}%"
+                
+                # Replace the entire old line in the message with our new line
+                final_msg = re.sub(pattern, new_line, final_msg, count=1, flags=re.IGNORECASE)
             else:
-                # If no score found, default to 0 bar
-                final_msg = final_msg.replace("{{BAR}}", "⬜⬜⬜⬜⬜⬜⬜⬜⬜⬜")
+                # Fallback if AI forgot to write "Confidence"
+                final_msg += "\n\n(⚠️ Error: Confidence score not detected)"
 
             verdict_text = extract_verdict(final_msg)
 
