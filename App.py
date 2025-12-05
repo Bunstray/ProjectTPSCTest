@@ -204,7 +204,7 @@ if not bot.message_handlers:
             *HASIL CEK FAKTA*
             ------------------------------
             *Status:* [STATUS]
-            *Confidence:* [SCORE]%
+            *Confidence:* [SCORE]% [hanya gunakan angka saja tidak perlu kotak visualisasi]
             
             *Analisis AI:*
             [Jelaskan kesimpulan dalam 2 kalimat]
