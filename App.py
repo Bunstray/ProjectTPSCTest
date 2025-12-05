@@ -143,7 +143,9 @@ if not bot.message_handlers:
         welcome_text = """
         *Halo! Saya HODEAI Bot.*
         Kirimkan judul berita untuk cek fakta.
-        Percakapan ini akan direkam untuk analisis lebih lanjut.
+
+        (Bot masih dalam fase pengembangan, maka masih rentan terhadap kesalahan).
+        (Percakapan ini akan direkam untuk analisis lebih lanjut).
         _Powered by HODE AI_
         """
         bot.reply_to(message, welcome_text, parse_mode="Markdown")
