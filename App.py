@@ -36,6 +36,10 @@ st.markdown("""
     div[data-testid="stDataFrame"] th {
         text-align: center;
     }
+    /* Style for the Hard Restart button to make it red */
+    div.stButton > button:first-child {
+        width: 100%;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -131,8 +135,6 @@ def extract_verdict(text):
         return clean_verdict
     return "UNKNOWN"
 
-# [REMOVED] def create_dynamic_bar(score) - No longer needed
-
 # 5. BOT HANDLERS
 if not bot.message_handlers:
     
@@ -141,6 +143,8 @@ if not bot.message_handlers:
         welcome_text = """
         *Halo! Saya HODEAI Bot.*
         Kirimkan judul berita untuk cek fakta.
+        Percakapan ini akan direkam untuk analisis lebih lanjut.
+        _Powered by HODE AI_
         """
         bot.reply_to(message, welcome_text, parse_mode="Markdown")
 
@@ -204,7 +208,7 @@ if not bot.message_handlers:
             *HASIL CEK FAKTA*
             ------------------------------
             *Status:* [STATUS]
-            *Confidence:* [SCORE]% [hanya gunakan angka saja tidak perlu kotak visualisasi]
+            *Confidence:* [SCORE]%
             
             *Analisis AI:*
             [Jelaskan kesimpulan dalam 2 kalimat]
@@ -224,8 +228,6 @@ if not bot.message_handlers:
                 response = model_gemini.generate_content(prompt)
                 final_msg = response.text
 
-            # [REMOVED] FORCE BAR INJECTION Logic block was here.
-
             verdict_text = extract_verdict(final_msg)
 
             bot.delete_message(chat_id, temp_msg.message_id) 
@@ -244,7 +246,9 @@ if not bot.message_handlers:
 # 5.1 BACKGROUND THREAD FUNCTION
 def start_bot_background():
     try:
-        st.session_state.bot_instance.infinity_polling(timeout=10, long_polling_timeout=5)
+        # Use st.session_state to get the current bot instance
+        if st.session_state.bot_instance:
+            st.session_state.bot_instance.infinity_polling(timeout=10, long_polling_timeout=5)
     except Exception as e:
         print(f"Bot Error: {e}")
 
@@ -261,10 +265,10 @@ if not is_running_global:
     t = threading.Thread(target=start_bot_background, name="TPSC_Worker")
     t.daemon = True
     t.start()
-    print("✅ UptimeRobot Ping: Bot Started Automatically")
+    print("UptimeRobot Ping: Bot Started Automatically")
 
 # =========================================================
-#  PASSWORD WALL
+# PASSWORD WALL
 # =========================================================
 def check_password():
     def password_entered():
@@ -312,10 +316,41 @@ tab1, tab2 = st.tabs(["SERVER CONTROL", "DATA & STATISTICS"])
 
 with tab1:
     st.subheader("Process Management")
-    st.success("**The Bot is ACTIVE.**")
-    st.info("The bot runs automatically. To restart logic, click below.")
-    if st.button("Soft Restart UI"):
-        st.rerun()
+    
+    col_stat, col_act = st.columns([2, 1])
+    with col_stat:
+        if is_running_global:
+            st.success("**The Bot is ACTIVE (Headless Mode)**")
+        else:
+            st.warning("**Bot Thread Missing (Will Auto-Start)**")
+    
+    with col_act:
+        st.info("Controls")
+    
+    # --- CONTROL BUTTONS ---
+    c1, c2 = st.columns(2)
+    
+    with c1:
+        # Soft Restart: Just reloads the UI to update numbers
+        if st.button("Refresh UI / Soft Restart"):
+            st.rerun()
+
+    with c2:
+        # Hard Restart: Kills the polling and reloads script to spawn new thread
+        if st.button("HARD RESTART BOT"):
+            try:
+                if st.session_state.bot_instance:
+                    st.session_state.bot_instance.stop_polling()
+                    st.toast("Polling stopped...", icon="🛑")
+            except Exception as e:
+                st.error(f"Error stopping: {e}")
+            
+            # Clear the instance so a new one is created on rerun
+            st.session_state.bot_instance = None
+            time.sleep(1) # Give thread time to die
+            st.rerun()
+
+    st.caption("Note: Use 'Hard Restart' if the bot stops responding but the server says Online.")
 
 with tab2:
     if st.button("Refresh Analytics"): st.rerun()
