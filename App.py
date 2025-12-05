@@ -68,9 +68,9 @@ def log_to_sheet(message, answer_text, verdict="ERROR"):
             question = message.text
             
             sheet.append_row([timestamp, user_id, username, first_name, question, answer_text, verdict])
-            print(f"✅ Logged: {verdict}")
+            print(f"Logged: {verdict}")
     except Exception as e:
-        print(f"❌ Logging Failed: {e}")
+        print(f"Logging Failed: {e}")
 
 # 2. LOAD SECRETS & INITIALIZE BOT
 try:
@@ -237,7 +237,7 @@ if not bot.message_handlers:
                 bot.send_message(chat_id, final_msg)
 
         except Exception as e:
-            err_msg = f"⚠️ System Error: {str(e)}"
+            err_msg = f"System Error: {str(e)}"
             bot.send_message(chat_id, err_msg)
             log_to_sheet(message, err_msg, "SYSTEM ERROR")
 
@@ -264,7 +264,7 @@ if not is_running_global:
     print("✅ UptimeRobot Ping: Bot Started Automatically")
 
 # =========================================================
-# 🛑 PASSWORD WALL
+#  PASSWORD WALL
 # =========================================================
 def check_password():
     def password_entered():
@@ -275,11 +275,11 @@ def check_password():
             st.session_state["password_correct"] = False
 
     if "password_correct" not in st.session_state:
-        st.text_input("🔑 Admin Password", type="password", on_change=password_entered, key="password")
+        st.text_input("Admin Password", type="password", on_change=password_entered, key="password")
         return False
     elif not st.session_state["password_correct"]:
-        st.text_input("🔑 Admin Password", type="password", on_change=password_entered, key="password")
-        st.error("😕 Incorrect")
+        st.text_input("Admin Password", type="password", on_change=password_entered, key="password")
+        st.error("Incorrect")
         return False
     else:
         return True
@@ -291,7 +291,7 @@ if not check_password():
 # 6. UI DASHBOARD (ADMIN VIEW)
 # =========================================================
 
-st.title("🎛️ HODEAI Control Panel")
+st.title("HODEAI Control Panel")
 st.caption(f"Server Time: {(datetime.utcnow() + timedelta(hours=7)).strftime('%H:%M:%S (GMT+7)')}")
 
 # --- METRICS ROW ---
@@ -308,17 +308,17 @@ with m3:
 
 st.markdown("---")
 
-tab1, tab2 = st.tabs(["🚀 SERVER CONTROL", "📊 DATA & STATISTICS"])
+tab1, tab2 = st.tabs(["SERVER CONTROL", "DATA & STATISTICS"])
 
 with tab1:
     st.subheader("Process Management")
-    st.success("✅ **The Bot is ACTIVE (Headless Mode).**")
+    st.success("**The Bot is ACTIVE.**")
     st.info("The bot runs automatically. To restart logic, click below.")
-    if st.button("🔄 Soft Restart UI"):
+    if st.button("Soft Restart UI"):
         st.rerun()
 
 with tab2:
-    if st.button("🔄 Refresh Analytics"): st.rerun()
+    if st.button("Refresh Analytics"): st.rerun()
     sheet = connect_to_sheet()
     if sheet:
         try:
@@ -327,10 +327,10 @@ with tab2:
                 df = pd.DataFrame(data)
                 
                 # --- LEADERBOARD ---
-                st.subheader("🏆 User Leaderboard")
+                st.subheader("User Leaderboard")
                 col_search, _ = st.columns([2, 1])
                 with col_search:
-                    search_query = st.text_input("🔍 Search User", placeholder="Type username, Name, or ID...")
+                    search_query = st.text_input("Search User", placeholder="Type username, Name, or ID...")
                 
                 if "User ID" in df.columns:
                     # 1. Calc Stats
@@ -366,13 +366,13 @@ with tab2:
                 st.markdown("---")
                 
                 # --- RAW LOGS ---
-                st.subheader("📝 Message Logs")
+                st.subheader("Message Logs")
                 col_f1, col_f2 = st.columns(2)
-                with col_f1: log_search = st.text_input("🔍 Search Content", placeholder="Search messages...")
+                with col_f1: log_search = st.text_input("Search Content", placeholder="Search messages...")
                 with col_f2:
                     if "Verdict" in df.columns:
                         unique_verdicts = df["Verdict"].unique().tolist()
-                        verdict_filter = st.multiselect("⚖️ Filter by Verdict", unique_verdicts)
+                        verdict_filter = st.multiselect("Filter by Verdict", unique_verdicts)
                     else: verdict_filter = []
 
                 df_filtered = df.copy()
