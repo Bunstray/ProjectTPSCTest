@@ -30,7 +30,6 @@ st.markdown("""
         border-radius: 10px;
         border: 1px solid #262730;
     }
-    /* Force center alignment for table cells */
     div[data-testid="stDataFrame"] td {
         text-align: center;
     }
@@ -132,33 +131,7 @@ def extract_verdict(text):
         return clean_verdict
     return "UNKNOWN"
 
-def create_dynamic_bar(score):
-    # Ensure score is an integer between 0-100
-    try:
-        score = int(score)
-    except:
-        score = 0
-    score = max(0, min(100, score))
-    
-    # Calculate blocks (1 block = 10%)
-    # We use round() so 75% becomes 8 blocks, 74% becomes 7 blocks
-    filled_count = int(round(score / 10))
-    empty_count = 10 - filled_count
-    
-    # Determine Color
-    # > 75% = Green, 50-75% = Yellow, < 50% = Red
-    if score > 75:
-        fill_char = "🟩"
-    elif score >= 50:
-        fill_char = "🟨"
-    else:
-        fill_char = "🟥"
-        
-    empty_char = "⬜"
-    
-    # Construct the string
-    bar = (fill_char * filled_count) + (empty_char * empty_count)
-    return bar
+# [REMOVED] def create_dynamic_bar(score) - No longer needed
 
 # 5. BOT HANDLERS
 if not bot.message_handlers:
@@ -166,7 +139,7 @@ if not bot.message_handlers:
     @bot.message_handler(commands=['start', 'help'])
     def send_welcome(message):
         welcome_text = """
-        👋 *Halo! Saya HODEAI Bot.*
+        *Halo! Saya HODEAI Bot.*
         Kirimkan judul berita untuk cek fakta.
         """
         bot.reply_to(message, welcome_text, parse_mode="Markdown")
@@ -185,12 +158,12 @@ if not bot.message_handlers:
         chat_id = message.chat.id
         
         bot.send_chat_action(chat_id, 'typing')
-        temp_msg = bot.reply_to(message, "🕵️ *HODEAI sedang menginvestigasi...*", parse_mode="Markdown")
+        temp_msg = bot.reply_to(message, "*HODEAI sedang menginvestigasi...*", parse_mode="Markdown")
         
         try:
             results = google_search(f"{user_text} berita validasi")
             if not results:
-                err = "❌ Tidak ditemukan berita relevan."
+                err = "Tidak ditemukan berita relevan."
                 bot.edit_message_text(err, chat_id, temp_msg.message_id)
                 log_to_sheet(message, err, "NOT FOUND")
                 return
@@ -213,31 +186,30 @@ if not bot.message_handlers:
                         hoax_score = probs[hoax_idx]
                     except: pass
 
-                if hoax_score > 0.7: tag = "⛔ [SUSPECT]"
-                elif hoax_score > 0.4: tag = "⚠️ [NEUTRAL]"
-                else: tag = "✅ [TRUSTED]"
+                if hoax_score > 0.7: tag = "[SUSPECT]"
+                elif hoax_score > 0.4: tag = "[NEUTRAL]"
+                else: tag = "[TRUSTED]"
                 evidence_for_gemini += f"{tag} {doc.get('title')} (Link: {link})\n"
 
             # --- PROMPT ---
-            # We tell Gemini specifically NOT to draw the bar, just give the score.
             prompt = f"""
             Peran: HODEAI-Bot. Analisis berita ini: "{user_text}". 
             Bukti: {evidence_for_gemini}
             
             INSTRUKSI:
             1. Tentukan Status (FAKTA / HOAKS / TIDAK JELAS).
-            2. Berikan Confidence Score (0-100).
+            2. Berikan Confidence Score (0-100) sebagai angka saja.
             
             OUTPUT FORMAT (Telegram Markdown):
             *HASIL CEK FAKTA*
             ------------------------------
-            📊 *Status:* [STATUS]
-            Confidence: [SCORE]%
+            *Status:* [STATUS]
+            *Confidence:* [SCORE]%
             
-            *📋 Analisis AI:*
+            *Analisis AI:*
             [Jelaskan kesimpulan dalam 2 kalimat]
             
-            *🔗 Sumber:*
+            *Sumber:*
             [List 2 link terbaik]
             
             _Powered by HODE AI_
@@ -252,31 +224,7 @@ if not bot.message_handlers:
                 response = model_gemini.generate_content(prompt)
                 final_msg = response.text
 
-            # --- FORCE BAR INJECTION ---
-            # This logic ignores what Gemini drew and forces the 10-block bar
-            
-            # 1. Regex to find any line saying "Confidence: X%" (ignoring whatever symbols appear before it)
-            # The regex looks for: (Any characters)(Confidence)(any separator)(digits)(%)
-            pattern = r"(.*)(Confidence:?\s*)(\d+)(%?)"
-            
-            match = re.search(pattern, final_msg, re.IGNORECASE)
-            
-            if match:
-                # Extract the score number (Group 3 in regex)
-                score_val = int(match.group(3))
-                
-                # Create the perfect 10-block bar
-                visual_bar = create_dynamic_bar(score_val)
-                
-                # Rebuild the line entirely
-                # New line = "🟩🟩🟩🟩🟩⬜⬜⬜⬜⬜ Confidence: 50%"
-                new_line = f"{visual_bar} *Confidence:* {score_val}%"
-                
-                # Replace the entire old line in the message with our new line
-                final_msg = re.sub(pattern, new_line, final_msg, count=1, flags=re.IGNORECASE)
-            else:
-                # Fallback if AI forgot to write "Confidence"
-                final_msg += "\n\n(⚠️ Error: Confidence score not detected)"
+            # [REMOVED] FORCE BAR INJECTION Logic block was here.
 
             verdict_text = extract_verdict(final_msg)
 
@@ -303,8 +251,6 @@ def start_bot_background():
 # =========================================================
 # CRITICAL: UPTIMEROBOT AUTO-START LOGIC
 # =========================================================
-# This block MUST be before the password check to work in Headless Mode.
-
 is_running_global = False
 for thread in threading.enumerate():
     if thread.name == "TPSC_Worker":
@@ -312,14 +258,13 @@ for thread in threading.enumerate():
         break
 
 if not is_running_global:
-    # Auto-start thread immediately
     t = threading.Thread(target=start_bot_background, name="TPSC_Worker")
     t.daemon = True
     t.start()
     print("✅ UptimeRobot Ping: Bot Started Automatically")
 
 # =========================================================
-# 🛑 PASSWORD WALL (UI STOPS HERE)
+# 🛑 PASSWORD WALL
 # =========================================================
 def check_password():
     def password_entered():
@@ -340,7 +285,7 @@ def check_password():
         return True
 
 if not check_password():
-    st.stop() # UI rendering stops here, but Background Thread continues above!
+    st.stop() 
 
 # =========================================================
 # 6. UI DASHBOARD (ADMIN VIEW)
@@ -403,7 +348,7 @@ with tab2:
                         ]
                     user_stats = user_stats.sort_values(by="Messages Sent", ascending=False)
                     
-                    # 3. RESTORED STYLING (Center Align)
+                    # 3. STYLING
                     styled_stats = user_stats.style.set_properties(
                         subset=['Messages Sent'], 
                         **{'text-align': 'center'}
