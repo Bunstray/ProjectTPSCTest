@@ -268,28 +268,43 @@ if not is_running_global:
     print("UptimeRobot Ping: Bot Started Automatically")
 
 # =========================================================
-# PASSWORD WALL
+# PASSWORD WALL (FIXED)
 # =========================================================
 def check_password():
+    """Returns `True` if the user had the correct password."""
+
     def password_entered():
+        # Check if the password in session state matches the secret
         if st.session_state["password"] == st.secrets["ADMIN_PASSWORD"]:
             st.session_state["password_correct"] = True
-            del st.session_state["password"]
+            # REMOVED: del st.session_state["password"]  <-- This was causing the crash
         else:
             st.session_state["password_correct"] = False
 
+    # First run or password not entered yet
     if "password_correct" not in st.session_state:
-        st.text_input("Admin Password", type="password", on_change=password_entered, key="password")
+        st.text_input(
+            "Admin Password", 
+            type="password", 
+            on_change=password_entered, 
+            key="password"
+        )
         return False
+    
+    # Password entered but incorrect
     elif not st.session_state["password_correct"]:
-        st.text_input("Admin Password", type="password", on_change=password_entered, key="password")
-        st.error("Incorrect")
+        st.text_input(
+            "Admin Password", 
+            type="password", 
+            on_change=password_entered, 
+            key="password"
+        )
+        st.error("Incorrect Password")
         return False
+    
+    # Password correct
     else:
         return True
-
-if not check_password():
-    st.stop() 
 
 # =========================================================
 # 6. UI DASHBOARD (ADMIN VIEW)
