@@ -244,28 +244,38 @@ if not bot.message_handlers:
             log_to_sheet(message, err_msg, "SYSTEM ERROR")
 
 # 5.1 BACKGROUND THREAD FUNCTION
-def start_bot_background():
+def start_bot_background(bot_instance): 
+    # ^ ACCEPT THE BOT INSTANCE AS AN ARGUMENT
     try:
-        # Use st.session_state to get the current bot instance
-        if st.session_state.bot_instance:
-            st.session_state.bot_instance.infinity_polling(timeout=10, long_polling_timeout=5)
+        print("--- Bot Polling Thread Started ---")
+        # Run the polling loop on the passed instance
+        bot_instance.infinity_polling(timeout=10, long_polling_timeout=5)
     except Exception as e:
-        print(f"Bot Error: {e}")
+        print(f"Bot Polling Error: {e}")
 
 # =========================================================
-# CRITICAL: UPTIMEROBOT AUTO-START LOGIC
+# CRITICAL: UPTIMEROBOT AUTO-START LOGIC (FIXED)
 # =========================================================
 is_running_global = False
+# Check if our specific thread is already alive
 for thread in threading.enumerate():
     if thread.name == "TPSC_Worker":
         is_running_global = True
         break
 
 if not is_running_global:
-    t = threading.Thread(target=start_bot_background, name="TPSC_Worker")
-    t.daemon = True
-    t.start()
-    print("UptimeRobot Ping: Bot Started Automatically")
+    # Ensure the bot instance exists before starting the thread
+    if st.session_state.bot_instance is not None:
+        t = threading.Thread(
+            target=start_bot_background, 
+            args=(st.session_state.bot_instance,), # Pass the bot object here
+            name="TPSC_Worker"
+        )
+        t.daemon = True
+        t.start()
+        print("UptimeRobot Ping: Bot Started Automatically")
+    else:
+        st.warning("Bot instance not found. Cannot start background thread.")
 
 # =========================================================
 # PASSWORD WALL (FIXED)
