@@ -145,7 +145,7 @@ if not bot.message_handlers:
         Kirimkan judul berita untuk cek fakta.
 
         (Bot masih dalam fase pengembangan, maka masih rentan terhadap kesalahan).
-        (Percakapan ini akan direkam untuk analisis lebih lanjut).
+        (Percakapan ini akan direkam untuk pengembangan bot lebih lanjut, dengan melanjutkan pengguna dianggap sudah setuju).
         _Powered by HODE AI_
         """
         bot.reply_to(message, welcome_text, parse_mode="Markdown")
