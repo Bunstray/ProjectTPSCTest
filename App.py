@@ -190,9 +190,9 @@ if not bot.message_handlers:
                         hoax_score = probs[hoax_idx]
                     except: pass
 
-                if hoax_score > 0.7: tag = "[SUSPECT]"
-                elif hoax_score > 0.4: tag = "[NEUTRAL]"
-                else: tag = "[TRUSTED]"
+                if hoax_score > 0.7: tag = "[SUSPECT, ]"
+                elif hoax_score > 0.4: tag = "[NEUTRAL, ]"
+                else: tag = "[TRUSTED, ]"
                 evidence_for_gemini += f"{tag} {doc.get('title')} (Link: {link})\n"
 
             # --- PROMPT ---
